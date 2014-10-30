@@ -22,6 +22,8 @@ class NameValue(object):
     def __init__(self, name, value):
         self.name  = name
         self.value = value
+    def __str__(self):
+        return '%s = %s' % (self.name, self.value)
 
 #===============================================================================
 class Config(object):
@@ -80,6 +82,12 @@ class Config(object):
             '''Iterate NameValue's for all attributes sorted by name.'''
             for name in self.names():
                 yield NameValue(name, self.a[name])
+        def __str__(self):
+            s = ['[%s]' % self.name]
+            for key in sorted(self.a.keys()):
+                if self.a[key]:
+                    s.append(str(NameValue(key, self.a[key])))
+            return '\n'.join(s)
 
     class Meta(object):
         def __init__(self, required, numbers, lists, keywords):
@@ -87,6 +95,8 @@ class Config(object):
             self.numbers  = numbers
             self.lists    = lists
             self.keywords = keywords
+        def __str__(self):
+            return '{required=%(required)s, numbers=%(numbers)s, lists=%(lists)s, keywords=%(keywords)s}' % self.__dict__
 
     @staticmethod
     def load(configpath, required = [], numbers = [], lists = [], keywords = []):
@@ -187,14 +197,19 @@ class Config(object):
                 name_inc = name_inc.lower()
                 if name_inc in self.section_map:
                     section_inc = self.section_map[name_inc]
-                    self.process_includes(name_inc)
+                    print '[%s] => %s' % (section_name, section_inc)
+                    self._process_includes(name_inc, processed)
                     self._copy_section(section_inc, section)
 
     def _copy_section(self, section_src, section_dst):
         for attr_name in section_src.a:
             if attr_name != Config.include_entry:
                 if attr_name in self.meta.lists:
-                    section_dst.a[attr_name].extend(section_src.a[attr_name])
+                    if section_src.a[attr_name]:
+                        print '##### SRC[%s]=%s' % (attr_name, section_src.a[attr_name])
+                        print '##### DST1[%s]=%s' % (attr_name, section_dst.a[attr_name])
+                        section_dst.a[attr_name].extend(section_src.a[attr_name])
+                        print '##### DST2[%s]=%s' % (attr_name, section_dst.a[attr_name])
                 elif attr_name in self.meta.keywords:
                     for keyword in section_src.a[attr_name]:
                         if keyword not in section_dst.a[attr_name]:
