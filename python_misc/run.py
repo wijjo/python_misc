@@ -122,12 +122,18 @@ def run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
     return ret
 
 
+class RunnerCommandArguments(dict):
+    def __init__(self, **kwargs):
+        dict.__init__(self, **kwargs)
+    def __getattr__(self, name):
+        return self.get(name, None)
+    def __setattr__(self, name, value):
+        self[name] = value
+
 class Runner:
     def __init__(self, cmdargs, **kwargs):
         self.cmdargs = cmdargs
         self.kwargs = kwargs
-        self.verbose = False
-        self.pause = False
     def update(self, **kwargs):
         for k in kwargs:
             self.kwargs[k] = kwargs[k]

@@ -393,3 +393,30 @@ class Properties(object):
         for name in names:
             if name in self._p:
                 del self._p[name]
+
+def parse_version_string(version_string):
+    return [int(s) for s in version_string.split(' ')[-1].split('.')]
+
+def version_compare(version_string_1, version_string_2):
+    """
+    Compare two dot-separated version strings
+    return 0 if version_string_1 = version_string_2
+          -1 if version_string_1 < version_string_2
+          +1 if version_string_1 > version_string_2
+    """
+    if version_string_1 is None:
+        if version_string_2 is None:
+            return 0
+        return -1
+    if version_string_2 is None:
+        return 1
+    version1 = parse_version_string(version_string_1)
+    version2 = parse_version_string(version_string_2)
+    for i in xrange(len(version2)):
+        if len(version1) < i + 1 or version1[i] < version2[i]:
+            return -1
+        if version1[i] > version2[i]:
+            return +1
+    if len(version1) > len(version2):
+        return +1
+    return 0

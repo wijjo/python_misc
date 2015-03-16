@@ -207,3 +207,48 @@ def get_github_root(github_root):
             logger.abort('Unable to determine the GitHub root - please specify one.')
     return github_root
 
+
+def git_version():
+    version = None
+    for line in run.pipe_cmd('git', '--version'):
+        if version is None:
+            version = line.split(' ')[-1]
+    return version
+
+def is_git_version_newer(min_version):
+    version = git_version()
+    if version is None:
+        return False
+    return utility.version_compare(version, min_version) >= 0
+
+def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):
+    if ancestor is None:
+        ancestor = 'master'
+    runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
+                        branch=branch, ancestor=ancestor)
+    # Create local branch.
+    if branch != 'master':
+        runner.shell('git branch %(branch)s origin/%(ancestor)s')
+    # Create remote branch?
+    if create_remote:
+        create_remote_branch(url, branch, dryrun=dryrun, verbose=verbose)
+
+def create_remote_branch(url, branch, dryrun=False, verbose=False):
+    runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
+                        branch=branch)
+    if dryrun:
+        remote_exists = False
+    else:
+        remote_exists = remote_branch_exists(url, branch, verbose=verbose)
+    if not remote_exists:
+        logger.info(runner.expand('Creating remote branch %(branch)s...'))
+        runner.shell('git push origin %(branch)s:%(branch)s')
+    # Check out branch.
+    runner.shell('git checkout %(branch)s')
+    # Set up remote tracking.
+    if branch != 'master' and not remote_exists:
+        logger.info('Setting local branch to track to remote...')
+        if is_git_version_newer('1.8'):
+            runner.shell('git branch --set-upstream-to origin/%(branch)s')
+        else:
+            runner.shell('git branch --set-upstream %(branch)s origin/%(branch)s')
