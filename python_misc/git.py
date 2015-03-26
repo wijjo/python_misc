@@ -23,7 +23,7 @@ def get_info():
     with open(os.path.expanduser('~/.gitconfig')) as f:
         section = ''
         for line in f:
-            m = re_section.match(line)
+            m = G.re_section.match(line)
             if m:
                 section = m.group(1).lower()
                 setattr(info, section, Node())
@@ -240,10 +240,14 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
     runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
                         branch=branch)
-    if dryrun:
-        remote_exists = False
-    else:
-        remote_exists = remote_branch_exists(url, branch, verbose=verbose)
+    remote_exists = False
+    if not dryrun:
+        if url is None:
+            url = get_repository_url()
+            if url is None:
+                logger.warning("Failed to get repository URL, assuming the branch does not exist.")
+            else:
+                remote_exists = remote_branch_exists(url, branch, verbose=verbose)
     if not remote_exists:
         logger.info(runner.expand('Creating remote branch %(branch)s...'))
         runner.shell('git push origin %(branch)s:%(branch)s')
@@ -256,3 +260,9 @@ def create_remote_branch(url, branch, dryrun=False, verbose=False):
             runner.shell('git branch --set-upstream-to origin/%(branch)s')
         else:
             runner.shell('git branch --set-upstream %(branch)s origin/%(branch)s')
+
+def get_repository_url():
+    url = None
+    for line in run.pipe_cmd('git', 'config', '--get', 'remote.origin.url'):
+        url = line
+    return url
