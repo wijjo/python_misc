@@ -11,6 +11,7 @@ import utility
 class G:
     github_root_config = os.path.expanduser('~/.github_root')
     re_section = re.compile('^\s*\[([^\]]+)\]\s*$')
+    re_version = re.compile('.* version ([^\s]+)', re.IGNORECASE)
 
 
 def get_info():
@@ -212,7 +213,10 @@ def git_version():
     version = None
     for line in run.pipe_cmd('git', '--version'):
         if version is None:
-            version = line.split(' ')[-1]
+            m = G.re_version.search(line)
+            if not m:
+                utility.abort('Failed to parse git version: %s', line.strip())
+            version = m.group(1)
     return version
 
 def is_git_version_newer(min_version):
