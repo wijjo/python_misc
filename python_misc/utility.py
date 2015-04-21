@@ -12,6 +12,7 @@ import inspect
 class G:
     re_range = re.compile('\[([^\]-])-([^\]-])')
     re_mount = re.compile('^(/[a-z0-9_/]+) on (/[a-z0-9_/ ]+)( [(][^)]*[)])?', re.IGNORECASE)
+    re_yes_no = re.compile('[yn]?', re.IGNORECASE)
 
 
 # https://gist.github.com/techtonik/2151727/raw/4169b8cccbb0350b709e43d464031616e1b89252/caller_name.py
@@ -310,6 +311,30 @@ def choose(prompt, *choices):
             return response[0]
 
 
+def prompt_re(msg, re, default):
+    while True:
+        sys.stdout.write('%s: ' % msg)
+        try:
+            s  = sys.stdin.readline().strip()
+            if re.match(s):
+                if not s:
+                    return default
+                return s
+            logger.error('bad input - try again')
+        except KeyboardInterrupt:
+            logger.abort('', 'Keyboard interrupt')
+
+
+def prompt_yes_no(msg, default=False):
+    if default:
+        yn = 'Y/n'
+        sdef = 'y'
+    else:
+        yn = 'y/N'
+        sdef = 'n'
+    return (prompt_re('%s (%s)' % (msg, yn), G.re_yes_no, sdef).lower() == 'y')
+
+
 class Properties(object):
 
     def __init__(self, dryrun=False, **kwargs):
@@ -420,3 +445,50 @@ def version_compare(version_string_1, version_string_2):
     if len(version1) > len(version2):
         return +1
     return 0
+
+def _get_version(path):
+    try:
+        return int(os.path.splitext(path)[0].split('-')[-1])
+    except ValueError:
+        return -1
+
+def get_versioned_path(path, suffix):
+    '''Convert path to versioned path by adding suffix and counter when
+    necessary.'''
+    (base, ext) = os.path.splitext(path)
+    reStripVersion = re.compile('(.*)-%s(-[0-9]*)?' % suffix)
+    m = reStripVersion.match(base)
+    if m:
+        base = m.group(1)
+    path = '%s-%s%s' % (base, suffix, ext)
+    if not os.path.exists(path):
+        return path
+    n = 1
+    for chk in glob('%s-%s-[0-9]*%s' % (base, suffix, ext)):
+        i = _get_version(chk)
+        if i > n:
+            n = i
+    suffix2 = '%s-%d' % (suffix, n+1)
+    return '%s-%s%s' % (base, suffix2, ext)
+
+def purge_versions(path, suffix, nKeep, reverse = False):
+    '''Purge file versions created by get_versioned_path.  Purge specified
+    quantity in normal or reverse sequence.'''
+    (base, ext) = os.path.splitext(path)
+    reStripVersion = re.compile('(.*)-%s(-[0-9]*)?' % suffix)
+    m = reStripVersion.match(base)
+    if m:
+        base = m.group(1)
+    versions = [version for version in glob('%s-%s*%s' % (base, suffix, ext))]
+    if reverse:
+        versions.sort(cmp = lambda v1, v2: cmp(_get_version(v2), _get_version(v1)))
+    else:
+        versions.sort(cmp = lambda v1, v2: cmp(_get_version(v1), _get_version(v2)))
+    nPurge = len(versions) - nKeep
+    if nPurge > len(versions):
+        nPurge = 0
+    if nPurge > 0:
+        for path in versions[:nPurge]:
+            os.remove(path)
+    return nPurge
+
