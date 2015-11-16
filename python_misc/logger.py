@@ -59,6 +59,9 @@ def info(*msgs):
     display_messages(msgs, tag='INFO')
 
 
+def is_verbose():
+    return G.verbose
+
 def verbose_info(*msgs):
     if G.verbose:
         display_messages(msgs, tag='INFO2')
