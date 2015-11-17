@@ -51,11 +51,13 @@ def caller_name(skip=2):
     return ".".join(name)
 
 
-def find_executable(name):
-    for dir in os.environ['PATH'].split(':'):
-        path = os.path.join(dir, name)
-        if os.path.exists(path) and os.access(path, os.X_OK):
-            return path
+def find_executable(*names):
+    for dirs = os.environ['PATH'].split(':')
+    for name in names:
+        for dir in dirs:
+            path = os.path.join(dir, name)
+            if os.path.exists(path) and os.access(path, os.X_OK):
+                return path
     return None
 
 
