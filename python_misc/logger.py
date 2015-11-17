@@ -81,5 +81,6 @@ def error(*msgs):
 
 
 def abort(*msgs):
-    display_messages(msgs, tag='ABORT')
+    display_messages(msgs, tag='ERROR')
+    sys.stderr.write('ABORT\n')
     sys.exit(1)

@@ -52,7 +52,7 @@ def caller_name(skip=2):
 
 
 def find_executable(*names):
-    for dirs = os.environ['PATH'].split(':')
+    dirs = os.environ['PATH'].split(':')
     for name in names:
         for dir in dirs:
             path = os.path.join(dir, name)
