@@ -65,12 +65,15 @@ def get_local_branch():
     """
     Get the checked out branch name.
     """
-    proc = subprocess.Popen('git status',
+    proc = subprocess.Popen('git branch',
                             shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    line = proc.communicate()[0].split('\n')[0].strip()
+    branch = '(unknown)'
+    for line in proc.communicate()[0].split('\n'):
+        if line.startswith('* '):
+            branch = line[2:]
     if proc.returncode != 0:
         logger.abort('You are not in a git workspace folder.')
-    return line.split()[-1]
+    return branch
 
 
 def get_tracking_branch():
@@ -106,7 +109,7 @@ def find_branch_root(dir_start=None):
     else:
         branch_root = dir_start
     while branch_root != '/':
-        if os.path.isdir(os.path.join(branch_root, '.git')):
+        if os.path.exists(os.path.join(branch_root, '.git')):
             return branch_root
         branch_root = os.path.dirname(branch_root)
     logger.abort('Failed to find working project root folder.')
@@ -120,37 +123,44 @@ def find_branch_root(dir_start=None):
 #        print line
 
 
-class FileStatus(object):
-    def __init__(self, flag, path, path2, modified):
-        self.flag = flag
-        self.path = path
-        self.path2 = path2
-        self.modified = modified
-
 def _unquote_path(path):
     if not path or path[0] != '"' or path[-1] != '"':
         return path
     return path[1:-1]
 
-def iter_changes():
+
+def iter_changes(submodules=False):
     """
     Iterate file change status.
     """
-    for s in run.pipe_cmd('git', 'status', '--porcelain'):
+    def _get_status(s, submodule):
+        class FileStatus(object):
+            def __init__(self, flag, path, path2, modified):
+                self.flag = flag
+                self.path = path
+                self.path2 = path2
+                self.modified = modified
+        def _get_path(p):
+            p2 = p if not submodule else os.path.join(submodule, p)
+            return _unquote_path(p2)
         flag, path = s.split(None, 1)
-        path = _unquote_path(path)
-        if flag.startswith('R'):
-            path2 = _unquote_path(s.split(' -> ')[-1])
-        else:
-            path2 = None
+        path = _get_path(path)
+        path2 = None if not flag.startswith('R') else _get_path(s.split(' -> ')[-1])
         try:
-            if path2:
-                modified = os.stat(path2).st_mtime
-            else:
-                modified = os.stat(path).st_mtime
+            modified = os.stat(path2 if path2 else path).st_mtime
         except OSError:
             modified = 0.0
-        yield FileStatus(flag, path, path2, modified)
+        return FileStatus(flag, path, path2, modified)
+    status_cmd_args = ('git', 'status', '--porcelain', '--ignore-submodules')
+    for s in run.pipe_cmd(*status_cmd_args):
+        yield _get_status(s, None)
+    if submodules:
+        submodule = None
+        for s in run.pipe_cmd('git', 'submodule', 'foreach', ' '.join(status_cmd_args)):
+            if s.startswith('Entering'):
+                submodule = s[10:-1]
+            else:
+                yield _get_status(s, submodule)
 
 
 def get_changes():
@@ -182,18 +192,19 @@ def remote_branch_exists(url, branch, verbose=False):
 
 
 def git_project_root(dir=None, optional=False):
-    rootdir = dir
-    if not rootdir:
-        rootdir = os.getcwd()
-    while rootdir != '/':
-        if os.path.isdir(os.path.join(rootdir, '.git')):
-            break
-        rootdir = os.path.dirname(rootdir)
+    if dir:
+        os.chdir(dir)
+        save_dir = os.getcwd()
     else:
-        if not optional:
-            logger.abort('Failed to find git project root folder.')
-        rootdir = None
-    return rootdir
+        save_dir = None
+    try:
+        root_dir = run.pipe_cmd_one('git', 'rev-parse', '--show-toplevel')
+    finally:
+        if save_dir:
+            os.chdir(save_dir)
+    if not root_dir and not optional:
+        logger.abort('Failed to find git project root folder.')
+    return root_dir
 
 
 def get_github_root(github_root):
@@ -266,3 +277,7 @@ def get_repository_url():
     for line in run.pipe_cmd('git', 'config', '--get', 'remote.origin.url'):
         url = line
     return url
+
+def iter_submodules():
+    for line in run.pipe_cmd('git', 'submodule', '--quiet', 'foreach', 'echo $name'):
+        yield line.strip()

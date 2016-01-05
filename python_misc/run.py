@@ -16,12 +16,22 @@ def pipe_cmd(*args, **kwargs):
         if verbose:
             logger.verbose_info(' '.join(args))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in iter(proc.stdout.readline, ''):
-            yield line.rstrip()
-        proc.stdout.close()
-        proc.wait()
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                yield line.rstrip()
+        finally:
+            proc.stdout.close()
+            proc.wait()
     except Exception, e:
         logger.warning('Exception running command: %s' % ' '.join(args), e)
+
+
+def pipe_cmd_one(*args, **kwargs):
+    ret_line = None
+    for line in pipe_cmd(*args, **kwargs):
+        if not ret_line:
+            ret_line = line
+    return ret_line
 
 
 class Command(object):

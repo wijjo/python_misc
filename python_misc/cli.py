@@ -172,9 +172,9 @@ class VerbPreparer(object):
             for verb in self.clispec.get_verbs():
                 verbparser = verbparsers.add_parser(verb.name, description=verb.description)
                 parsers_by_name[verb.name] = verbparser
-                #for alias in verb.aliases:
-                #    verbparser = verbparsers.add_parser(alias, description=verb.description)
-                #    parsers_by_name[alias] = verbparser
+                for alias in verb.aliases:
+                    verbparser = verbparsers.add_parser(alias, description=verb.description)
+                    parsers_by_name[alias] = verbparser
                 verb.prepare(parser=verbparser)
             if add_help:
                 helpparser = verbparsers.add_parser('help',
