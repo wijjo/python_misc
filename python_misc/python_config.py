@@ -17,8 +17,10 @@ class ConfigSpec(object):
         self.value = value
         self.desc = desc
 
-    def name_value_string(name, value):
-        quote = "'" if type(value) is str else ''
+    def name_value_string(self):
+        quote = "'" if type(self.value) is str else ''
+        name = self.name
+        value = self.value
         return '%(name)s = %(quote)s%(value)s%(quote)s' % locals()
 
 
