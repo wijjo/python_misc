@@ -3,6 +3,7 @@
 import os
 import copy
 import logger
+import listutil
 
 
 #===============================================================================
@@ -71,16 +72,23 @@ class Config(object):
         except (IOError, OSError), e:
             logger.abort('Unable to save configuration file: %s' % self.file_name, e)
 
-    def load(self, *dirs):
-        for directory in dirs:
-            self._load_directory_config(directory)
+    def load_for_paths(self, *paths):
+        config_dirs = []
+        for path in listutil.flatten(paths):
+            if path:
+                config_dir = os.path.realpath(
+                    path if os.path.isdir(path) else os.path.dirname(path))
+                if config_dir not in config_dirs:
+                    config_dirs.append(config_dir)
+        for config_dir in config_dirs:
+            self._load_directory_config(config_dir)
         if logger.is_verbose():
             self.dump()
 
-    def dump():
+    def dump(self):
         logger.verbose_info('=== Configuration ===')
         for spec in self.specs:
-            logger.verbose_info(spec.name_value_string())
+            logger.verbose_info('%s=%s' % (spec.name, str(self.data[spec.name])))
 
     def _load_directory_config(self, directory):
         path = os.path.expanduser(os.path.expandvars(os.path.join(directory, self.file_name)))
@@ -88,13 +96,15 @@ class Config(object):
             return
         try:
             logger.verbose_info('Reading configuration file: %s' % path)
-            # Grab configuration data and ignore other configuration file symbols from local Python code.
-            config_tmp = {}
+            # Grab configuration data and ignore other configuration file
+            # symbols from local Python code.
+            globals_tmp = {}
+            locals_tmp = {}
             for spec in self.specs:
-                config_tmp[spec.name] = self.data.get(spec.name, None)
-            execfile(path, dict(), config_tmp)
+                locals_tmp[spec.name] = self.data.get(spec.name, None)
+            execfile(path, globals_tmp, locals_tmp)
             for spec in self.specs:
-                if spec.name in config_tmp:
-                    self.data[spec.name] = config_tmp[spec.name]
+                if spec.name in locals_tmp:
+                    self.data[spec.name] = locals_tmp[spec.name]
         except Exception, e:
             logger.abort('Error reading configuration file: %s' % path, e)
