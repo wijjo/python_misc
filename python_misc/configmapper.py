@@ -98,18 +98,19 @@ class Config(object):
         def __str__(self):
             return '{required=%(required)s, numbers=%(numbers)s, lists=%(lists)s, keywords=%(keywords)s}' % self.__dict__
 
-    @staticmethod
-    def load(configpath, required = [], numbers = [], lists = [], keywords = []):
+    @classmethod
+    def load(cls, config_path_or_paths, required=[], numbers=[], lists=[], keywords=[]):
         parser = SafeConfigParser()
         try:
-            parser.read(configpath)
+            parser.read(config_path_or_paths)
         except Exception, e:
-            raise ConfigException('Failed to load configuration from "%s"' % configpath, str(e))
-        meta   = Config.Meta(required, numbers, lists, keywords)
-        config = Config(meta)
+            raise ConfigException('Failed to load configuration from "%s"'
+                                        % config_path_or_paths, str(e))
+        meta   = cls.Meta(required, numbers, lists, keywords)
+        config = cls(meta)
         for section_name in parser.sections():
             section_name = section_name.lower()
-            section = Config.Section(section_name, meta)
+            section = cls.Section(section_name, meta)
             config.add_section(section_name, section)
             for (attr_name, attr_value) in parser.items(section_name):
                 config.set_section_entry(section, attr_name, attr_value)

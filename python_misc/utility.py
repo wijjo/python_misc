@@ -143,6 +143,10 @@ def is_iterable(o):
     return False
 
 
+def is_non_string_sequence(o):
+    return is_iterable(o) and not is_string(o)
+
+
 def expand_ranges(*args):
     """
     Generate the cross-product of strings with embedded ranges written as [x-y].
