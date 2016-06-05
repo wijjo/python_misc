@@ -6,6 +6,8 @@ import subprocess
 import tempfile
 import logger
 
+### DEPRECATED ###
+# Use cmd module instead.
 
 def pipe_cmd(*args, **kwargs):
     """
@@ -27,6 +29,9 @@ def pipe_cmd(*args, **kwargs):
 
 
 def pipe_cmd_one(*args, **kwargs):
+    """
+    Run shell command and return one line of output.
+    """
     ret_line = None
     for line in pipe_cmd(*args, **kwargs):
         if not ret_line:
@@ -139,6 +144,7 @@ class RunnerCommandArguments(dict):
         return self.get(name, None)
     def __setattr__(self, name, value):
         self[name] = value
+
 
 class Runner:
     def __init__(self, cmdargs, **kwargs):
