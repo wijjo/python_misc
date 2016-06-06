@@ -200,15 +200,17 @@ class Command(object):
             # If it's a command use its p.stdout member as the stream.
             input_obj._check_in_with_block()
             input_source = input_obj.p.stdout
-        else:
-            if isinstance(input_obj, six.string_types) or isinstance(input_obj, bytes):
-                # Spool a string through a temporary file.
-                input_source = tempfile.SpooledTemporaryFile()
+        elif isinstance(input_obj, six.string_types) or isinstance(input_obj, bytes):
+            # Spool a string through a temporary file.
+            input_source = tempfile.SpooledTemporaryFile()
+            if isinstance(input_obj, bytes):
                 input_source.write(input_obj)
-                input_source.seek(0)
             else:
-                # Assume anything else is a proper file stream.
-                input_source = input_obj
+                input_source.write(str.encode(input_obj))
+            input_source.seek(0)
+        else:
+            # Assume anything else is a proper file stream.
+            input_source = input_obj
         return self.options(input_source=input_source)
 
     def pipe_out(self, *args):
@@ -291,9 +293,17 @@ def test():
     assert(not test_cmd.lines)
     assert(test_cmd.rc == 0)
 
-    print('=== input string')
+    print('=== input bytes')
     lines = []
     with Command('grep', '[bd]').pipe_in(b'a\nb\n\c\nd\n\e\n') as test_cmd:
+        lines = [line for line in test_cmd]
+    assert(lines == [b'b', b'd'])
+    assert(not test_cmd.lines)
+    assert(test_cmd.rc == 0)
+
+    print('=== input string')
+    lines = []
+    with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'b', b'd'])
     assert(not test_cmd.lines)
