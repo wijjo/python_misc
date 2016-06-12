@@ -107,7 +107,7 @@ class Command(object):
         self.args = args
         self.p = None
         self.done = False
-        self.lines = []
+        self.output_lines = []
         self.capture_on_exit = True
         self.input_source = None
         self.bufsize=1
@@ -122,10 +122,9 @@ class Command(object):
         Set options immediately after constructions.
 
         Returns self so that a chained call provides the "with" statement object.
-        It isn't very useful yet, except internally.
 
         bufsize          buffer size, see subprocess.Popen() for more information (default=1)
-        capture_on_exit  captures remaining output to "lines" member if True (default=True)
+        capture_on_exit  captures remaining output to "output_lines" member if True (default=True)
         input_source     string, stream, or Command to pipe to standard input (default=None)
         """
         self._check_not_running()
@@ -152,7 +151,7 @@ class Command(object):
     def __exit__(self, type, value, traceback):
         if self.p is not None:
             if self.capture_on_exit:
-                self.lines.extend([line for line in self.__iter__()])
+                self.output_lines.extend([line for line in self.__iter__()])
             self.rc = self.p.wait()
 
     def _check_in_with_block(self):
@@ -232,7 +231,7 @@ def test():
     with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'111', b'222', b'333'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== partial iteration')
@@ -242,25 +241,25 @@ def test():
             lines.append(line)
             break
     assert(lines == [b'111'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
 
     print('=== captured on close')
     with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
         pass
-    assert(test_cmd.lines == [b'111', b'222', b'333'])
+    assert(test_cmd.output_lines == [b'111', b'222', b'333'])
     assert(test_cmd.rc == 0)
 
     print('=== all at once')
     with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
         lines = test_cmd.read_lines()
     assert(lines == [b'111', b'222', b'333'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== console')
     with Command('bash', '-c', 'ls -l /tmp > /dev/null') as test_cmd:
         test_cmd.run()
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== NotInWithBlock exception')
@@ -276,10 +275,10 @@ def test():
     with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
         with test_cmd.pipe_out('grep', '[bd]') as grep_cmd:
             lines = [line for line in grep_cmd]
-        assert(not grep_cmd.lines)
+        assert(not grep_cmd.output_lines)
         assert(grep_cmd.rc == 0)
     assert(lines == [b'b', b'd'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== input pipe')
@@ -287,10 +286,10 @@ def test():
     with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
         with Command('grep', '[bd]').pipe_in(test_cmd) as grep_cmd:
             lines = [line for line in grep_cmd]
-        assert(not grep_cmd.lines)
+        assert(not grep_cmd.output_lines)
         assert(grep_cmd.rc == 0)
     assert(lines == [b'b', b'd'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== input bytes')
@@ -298,7 +297,7 @@ def test():
     with Command('grep', '[bd]').pipe_in(b'a\nb\n\c\nd\n\e\n') as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'b', b'd'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== input string')
@@ -306,7 +305,7 @@ def test():
     with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'b', b'd'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print('=== input stream')
@@ -317,7 +316,7 @@ def test():
     with Command('grep', '[bd]').pipe_in(tmp) as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'b', b'd'])
-    assert(not test_cmd.lines)
+    assert(not test_cmd.output_lines)
     assert(test_cmd.rc == 0)
 
     print(':: all tests passed ::')
