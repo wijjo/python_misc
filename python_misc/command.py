@@ -3,12 +3,16 @@
 """
 Wraps the standard Python subprocess module to simplify common usage patterns.
 
-It supports real-time or all at once access to output.  Limitations are that it
-is line-oriented only, and always merges stderr with stdout, and generally much
-less flexible than subprocess.Popen().
+This module trades ease of use for much less flexibility than the subprocess
+module it is built upon.  For example, it only supports line-buffering and
+always merges stderr with stdout.
 
-It is currently compatible with both Python versions 2 and 3. It has not been
-tested with Python versions older than 2.7.
+An input pipe can be accessed either real-time or all at once, but when piping
+between Command objects the second Command does not receive the first Command's
+output until EOF.
+
+Compatibility is maintained with both Python versions 2 and 3, although it has
+not been tested with Python 2 versions older than 2.7.
 
 Examples:
 
@@ -17,6 +21,7 @@ from python_misc.cmd import Command
 # Output to console
 with Command('ls', '-l') as lscmd:
     lscmd.run()
+# Access the return code outside the with block to allow the command to finish.
 print('ls returned %d' % lscmd.rc)
 
 # Get all output lines as a list.
@@ -30,14 +35,6 @@ with Command('ls', '-l') as lscmd:
         print line
 print('ls returned %d' % lscmd.rc)
 
-# Pipe one command into another (using pipe_out).
-with Command('ls', '-l') as lscmd:
-    with lscmd.pipe_out('grep', '^-rwx') as grepcmd:
-        for line in grepcmd:
-            print line
-    print('grep returned %d' % grepcmd.rc)
-print('ls returned %d' % lscmd.rc)
-
 # Pipe one command into another (using pipe_in).
 with Command('ls', '-l') as lscmd:
     with Command('grep', '^-rwx').pipe_in(lscmd) as grepcmd:
@@ -46,8 +43,23 @@ with Command('ls', '-l') as lscmd:
     print('grep returned %d' % grepcmd.rc)
 print('ls returned %d' % lscmd.rc)
 
+# Pipe one command into another (using pipe_out).
+# Note that pipe_out() is just a convenience wrapper for pipe_in(), as used above.
+with Command('ls', '-l') as lscmd:
+    with lscmd.pipe_out('grep', '^-rwx') as grepcmd:
+        for line in grepcmd:
+            print line
+    print('grep returned %d' % grepcmd.rc)
+print('ls returned %d' % lscmd.rc)
+
 # Pipe string into command.
 with Command('grep', 'abc').pipe_in('111\\n222\\nabc\\n333\\n') as grepcmd:
+    for line in grepcmd:
+        print line
+print('grep returned %d' % grepcmd.rc)
+
+# Pipe string list (iterable) into command.
+with Command('grep', 'abc').pipe_in(['111','222','abc','333']) as grepcmd:
     for line in grepcmd:
         print line
 print('grep returned %d' % grepcmd.rc)
@@ -60,6 +72,7 @@ print('grep returned %d' % grepcmd.rc)
 """
 
 import sys
+import os
 import subprocess
 import tempfile
 
@@ -192,23 +205,20 @@ class Command(object):
         """
         Set up an input stream pipe from a string, stream, or Command object.
 
+        Note that a string list represents multiple lines, and line separators
+        are added automatically.
+
         Arguments:
-            input_obj  string, stream, or Command to serve as the pipe input
+            input_obj  string, string list, stream, or Command pipe input
         """
         if isinstance(input_obj, Command):
-            # If it's a command use its p.stdout member as the stream.
-            input_obj._check_in_with_block()
-            input_source = input_obj.p.stdout
+            input_source = self._input_source_from_command(input_obj)
         elif isinstance(input_obj, six.string_types) or isinstance(input_obj, bytes):
-            # Spool a string through a temporary file.
-            input_source = tempfile.SpooledTemporaryFile()
-            if isinstance(input_obj, bytes):
-                input_source.write(input_obj)
-            else:
-                input_source.write(str.encode(input_obj))
-            input_source.seek(0)
+            input_source = self._input_source_from_strings(False, input_obj)
+        elif hasattr(input_obj, '__iter__'):
+            input_source = self._input_source_from_strings(True, *input_obj)
         else:
-            # Assume anything else is a proper file stream.
+            # Assume everything else is a proper file stream.
             input_source = input_obj
         return self.options(input_source=input_source)
 
@@ -223,11 +233,31 @@ class Command(object):
         """
         return Command(*args).pipe_in(self.p.stdout)
 
+    def _input_source_from_command(self, command_obj):
+        command_obj._check_in_with_block()
+        return command_obj.p.stdout
+
+    def _input_source_from_strings(self, add_line_separators, *input_strs):
+        # Spool strings or bytes through a temporary file.
+        input_source = tempfile.SpooledTemporaryFile()
+        for input_str in input_strs:
+            if isinstance(input_str, bytes):
+                input_source.write(input_str)
+            else:
+                input_source.write(str.encode(input_str))
+            if add_line_separators:
+                input_source.write(str.encode(os.linesep))
+        input_source.seek(0)
+        return input_source
 
 def test():
 
+    # Uncomment to see that output is real-time.
+    #with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
+    #    for line in test_cmd:
+    #        print line
+
     print('=== full iteration')
-    # Add a sleep after the echo to see that output isn't delayed.
     with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'111', b'222', b'333'])
@@ -303,6 +333,14 @@ def test():
     print('=== input string')
     lines = []
     with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
+        lines = [line for line in test_cmd]
+    assert(lines == [b'b', b'd'])
+    assert(not test_cmd.output_lines)
+    assert(test_cmd.rc == 0)
+
+    print('=== input list')
+    lines = []
+    with Command('grep', '[bd]').pipe_in(['a', 'b', 'c', 'd', 'e']) as test_cmd:
         lines = [line for line in test_cmd]
     assert(lines == [b'b', b'd'])
     assert(not test_cmd.output_lines)
