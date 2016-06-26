@@ -1,4 +1,16 @@
-#!/usr/bin/env python
+# Copyright 2016 Steven Cooper
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """
 Wraps the standard Python subprocess module to simplify common usage patterns.
@@ -250,114 +262,109 @@ class Command(object):
         input_source.seek(0)
         return input_source
 
-def test():
+import unittest
 
+class TestCommand(unittest.TestCase):
+
+    def test_full_iteration(self):
+        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
+            lines = [line for line in test_cmd]
+        self.assertEqual(lines, [b'111', b'222', b'333'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_partial_iteration(self):
+        lines = []
+        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
+            for line in test_cmd:
+                lines.append(line)
+                break
+        self.assertEqual(lines, [b'111'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+
+    def test_captured_on_close(self):
+        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
+            pass
+        self.assertEqual(test_cmd.output_lines, [b'111', b'222', b'333'])
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_all_at_once(self):
+        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
+            lines = test_cmd.read_lines()
+        self.assertEqual(lines, [b'111', b'222', b'333'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_console(self):
+        with Command('bash', '-c', 'ls -l /tmp > /dev/null') as test_cmd:
+            test_cmd.run()
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_with_block_exception(self):
+        test_cmd = Command('bash', '-c', 'for i in 111 222 333; do echo $i; done')
+        self.assertRaises(Command.NotInWithBlock, test_cmd.read_lines)
+
+    def test_output_pipe(self):
+        lines = []
+        with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
+            with test_cmd.pipe_out('grep', '[bd]') as grep_cmd:
+                lines = [line for line in grep_cmd]
+            self.assertEqual(len(test_cmd.output_lines), 0)
+            self.assertEqual(grep_cmd.rc, 0)
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_input_pipe(self):
+        lines = []
+        with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
+            with Command('grep', '[bd]').pipe_in(test_cmd) as grep_cmd:
+                lines = [line for line in grep_cmd]
+            self.assertEqual(len(grep_cmd.output_lines), 0)
+            self.assertEqual(grep_cmd.rc, 0)
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_input_bytes(self):
+        lines = []
+        with Command('grep', '[bd]').pipe_in(b'a\nb\n\c\nd\n\e\n') as test_cmd:
+            lines = [line for line in test_cmd]
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_input_string(self):
+        lines = []
+        with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
+            lines = [line for line in test_cmd]
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_input_list(self):
+        lines = []
+        with Command('grep', '[bd]').pipe_in(['a', 'b', 'c', 'd', 'e']) as test_cmd:
+            lines = [line for line in test_cmd]
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+    def test_input_stream(self):
+        lines = []
+        tmp = tempfile.SpooledTemporaryFile()
+        tmp.write(b'a\nb\n\c\nd\n\e\n')
+        tmp.seek(0)
+        with Command('grep', '[bd]').pipe_in(tmp) as test_cmd:
+            lines = [line for line in test_cmd]
+        self.assertEqual(lines, [b'b', b'd'])
+        self.assertEqual(len(test_cmd.output_lines), 0)
+        self.assertEqual(test_cmd.rc, 0)
+
+if __name__ == '__main__':
     # Uncomment to see that output is real-time.
     #with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
     #    for line in test_cmd:
     #        print line
-
-    print('=== full iteration')
-    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-        lines = [line for line in test_cmd]
-    assert(lines == [b'111', b'222', b'333'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== partial iteration')
-    lines = []
-    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-        for line in test_cmd:
-            lines.append(line)
-            break
-    assert(lines == [b'111'])
-    assert(not test_cmd.output_lines)
-
-    print('=== captured on close')
-    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-        pass
-    assert(test_cmd.output_lines == [b'111', b'222', b'333'])
-    assert(test_cmd.rc == 0)
-
-    print('=== all at once')
-    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-        lines = test_cmd.read_lines()
-    assert(lines == [b'111', b'222', b'333'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== console')
-    with Command('bash', '-c', 'ls -l /tmp > /dev/null') as test_cmd:
-        test_cmd.run()
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== NotInWithBlock exception')
-    test_cmd = Command('bash', '-c', 'for i in 111 222 333; do echo $i; done')
-    try:
-        test_cmd.read_lines()
-        assert(False)
-    except Command.NotInWithBlock:
-        pass
-
-    print('=== output pipe')
-    lines = []
-    with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
-        with test_cmd.pipe_out('grep', '[bd]') as grep_cmd:
-            lines = [line for line in grep_cmd]
-        assert(not grep_cmd.output_lines)
-        assert(grep_cmd.rc == 0)
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== input pipe')
-    lines = []
-    with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
-        with Command('grep', '[bd]').pipe_in(test_cmd) as grep_cmd:
-            lines = [line for line in grep_cmd]
-        assert(not grep_cmd.output_lines)
-        assert(grep_cmd.rc == 0)
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== input bytes')
-    lines = []
-    with Command('grep', '[bd]').pipe_in(b'a\nb\n\c\nd\n\e\n') as test_cmd:
-        lines = [line for line in test_cmd]
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== input string')
-    lines = []
-    with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
-        lines = [line for line in test_cmd]
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== input list')
-    lines = []
-    with Command('grep', '[bd]').pipe_in(['a', 'b', 'c', 'd', 'e']) as test_cmd:
-        lines = [line for line in test_cmd]
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print('=== input stream')
-    lines = []
-    tmp = tempfile.SpooledTemporaryFile()
-    tmp.write(b'a\nb\n\c\nd\n\e\n')
-    tmp.seek(0)
-    with Command('grep', '[bd]').pipe_in(tmp) as test_cmd:
-        lines = [line for line in test_cmd]
-    assert(lines == [b'b', b'd'])
-    assert(not test_cmd.output_lines)
-    assert(test_cmd.rc == 0)
-
-    print(':: all tests passed ::')
-
-if __name__ == '__main__':
-    test()
+    unittest.main()
