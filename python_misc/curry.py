@@ -13,88 +13,208 @@
 # limitations under the License.
 
 """
-This module provides support for wrapping callables, including methods,
-functions, and objects that implement __call__(), so that a fixed set of
-positional and or keyword arguments are merged into the calls.
+Introduction:
 
-Caveats: This implementation does no argument validation. Diagnosis of
-argument-related errors is complicated by the need to understand how currying
-affects the calls.
+  This module provides support for wrapping callables, including methods,
+  functions, and objects that implement __call__(), so that a fixed set of
+  positional and or keyword arguments are merged into the calls.
 
-It is compatible with Python 2.x and 3.x
+  The available objects can be used individually for simple manipulation of of
+  call arguments or composed to combine simple manipulations into complex ones.
+  Alternatively, the Tweak class supports any combination of manipulations with
+  one object.
+
+Curry classes:
+
+  Tweak   any combination of positional and keyword argument manipulations
+  Before  insert positional arguments before the incoming ones
+  After   append positional arguments after the incoming ones
+  Remove  remove positional arguments by index
+  Merge   update existing values and or add new keywords/values
+
+Caveats: This implementation does no argument validation against the
+expectations of the final callable. Diagnosis of argument-related errors is
+complicated by the need to understand how currying affects the calls.
+
+Combining curry operations:
+
+  Nested operations occur left to right, e.g.
+
+    Remove(Before(foo, 'a', 'b'), 0)('c', 'd')
+
+  results in foo('a', 'b', 'd'), not foo('b', 'c', 'd')
+
+  Explanation: Argument tweaks happen before calls, and each of these objects
+  is a callable.  The above example calls Remove first with ('c', 'd'). It
+  removes argument 0 ('c'), and calls Before with ('c'), which prepends
+  ('a', 'b'), resulting in the final call of foo('a', 'b', 'd').
+
+  Recommendation: Use Tweak for complex needs instead of chaining simpler
+  operations. It will be more intuitive and efficient.
+
+Compatibility:
+
+  Python 2.x and 3.x
 """
 
-class Curry(object):
-    """
-    Curry usage example:
+from itertools import chain
 
-    def foo(*args, **kwargs):
-        return args, kwargs
-    curry_foo = Curry(foo, before=(-2, -1), after=(998, 999), keywords=dict(x='yes', y='no'))
+class CurryBase(object):
 
-    print curry_foo()
-    print curry_foo(1, 2, a='aaa', b='bbb')
-
-    Output:
-
-    (-2, -1, 998, 999) {'x': 'yes', 'y': 'no'}
-    (-2, -1, 1, 2, 998, 999) {'a': 'aaa', 'b': 'bbb', 'x': 'yes', 'y': 'no'}
-
-    """
-
-    def __init__(self, callable_obj, before=tuple(), after=tuple(), keywords=dict()):
+    def prepare_args(self, args):
         """
-        The constructor takes a callable, position arguments to insert or
-        append, and keyword arguments to merge. Note that callable_obj can also
-        be a Curry object, to allow more than one layer of currying.
+        Produces the final positional arguments based on the before, after, and
+        remove information specified during construction.
+        Override to support custom generation of positional arguments.
         """
-        if not callable(callable_obj):
-            raise ArgumentError('Curry() requires a callable as the first argument.')
-        self.callable_obj = callable_obj
-        self.before = before
-        self.after = after
-        self.keywords = keywords
+        return tuple(args)
 
-    def prepare_positional_arguments(self, args):
+    def prepare_kwargs(self, kwargs):
         """
-        Method to prepend "before" and append "after" arguments. Override to
-        support custom generation of positional arguments.
+        Produces the final keyword arguments based on the merge and delete
+        information specified during construction.
+        Override to support custom generation of keyword arguments.
         """
-        return self.before + args + self.after
-
-    def prepare_keyword_arguments(self, kwargs):
-        """
-        Method to merge with curried keyword arguments.  Override to support
-        custom generation of keyword arguments.
-        """
-        curried_kwargs = self.keywords.copy()
-        curried_kwargs.update(kwargs)
-        return curried_kwargs
+        return dict(kwargs)
 
     def __call__(self, *args, **kwargs):
         """
-        Makes the final call after injecting the positional and keyword
-        arguments as specified at construction time.
+        Makes the final call after manipulating the positional and keyword
+        arguments as specified during construction.
         """
-        curried_args = self.prepare_positional_arguments(args)
-        curried_kwargs = self.prepare_keyword_arguments(kwargs)
-        return self.callable_obj(*curried_args, **curried_kwargs)
+        return self.call(*self.prepare_args(args), **self.prepare_kwargs(kwargs))
+
+
+class Tweak(CurryBase):
+    """
+    Flexible manipulation of call arguments. Serves as the base class for
+    simpler one-tweak-at-a-time classes. This class is more verbose, but can
+    handle any combination of manipulations with one object.
+
+    Tweak usage example:
+
+    def foo(*args, **kwargs):
+        print args, kwargs
+    curry_foo = curry.Tweak(foo, before=(-2, -1),
+                                 after=(998, 999),
+                                 remove=(1, 'x'),
+                                 merge={'y': 'yes', 'z': 'no', 2: 'two'})
+    curry_foo(1, 'oopsy', 2, x=42, a='aaa', b='bbb')
+
+    Output:
+    (-2, -1, 1, 'two', 998, 999) {'a': 'aaa', 'b': 'bbb', 'y': 'yes', 'z': 'no'}
+    """
+
+    def __init__(self, call, before=tuple(), after=tuple(), remove=tuple(), merge=dict()):
+        """
+        Tweak constructor:
+
+        Positional arguments.
+          - function, method, or other callable, including layered Tweak-based
+            object, to invoke after manipulating positional/keyword arguments
+
+        Keyword arguments:
+          before  iterable positional arguments inserted before incoming
+          after   iterable positional arguments appended to incoming
+          remove  iterable positional index integers and or keyword key names
+                  to remove from incoming positional and or keyword arguments
+          merge   dictionary of positional index integers and or keyword key
+                  names mapped to updated or new argument values
+        """
+        errors = []
+        if not callable(call):
+            errors.append('First argument must be callable.')
+        for sym in ('before', 'after', 'remove'):
+            if not hasattr(locals()[sym], '__iter__'):
+                errors.append('"%s" must be iterable.' % sym)
+        if not hasattr(merge, '__getitem__'):
+            errors.append('"merge" must be a dictionary."')
+        if errors:
+            raise TypeError('Tweak constructor errors: %s' % ' '.join(errors))
+        self.call   = call
+        self.before = tuple(before)
+        self.after  = tuple(after)
+        self.remove = set(remove)
+        self.merge  = dict(merge)
+
+    def prepare_args(self, args):
+        cargs = chain(self.before, (args[i] for i in xrange(len(args)) if i not in self.remove), self.after)
+        return tuple(cargs)
+
+    def prepare_kwargs(self, kwargs):
+        ckwargs = {k: kwargs[k] for k in kwargs if k not in self.remove}
+        ckwargs.update(self.merge)
+        return ckwargs
+
+
+class Before(Tweak):
+    def __init__(self, call, *before):
+        Tweak.__init__(self, call, before=before)
+
+
+class After(Tweak):
+    def __init__(self, call, *after):
+        Tweak.__init__(self, call, after=after)
+
+
+class Remove(Tweak):
+    def __init__(self, call, *remove):
+        Tweak.__init__(self, call, remove=remove)
+
+
+class Merge(Tweak):
+    def __init__(self, call, **merge):
+        Tweak.__init__(self, call, merge=merge)
+
 
 import unittest
 
 class TestCurry(unittest.TestCase):
-    def test_all(self):
+
+    def test_positional_args(self):
+        def foo(a, b, c):
+            return a, b, c
+        self.assertEqual(foo(1, 2, 3), (1, 2, 3))
+        self.assertRaises(TypeError, Tweak, foo, 9)
+        self.assertRaises(TypeError, Tweak, foo, before=9)
+        self.assertEqual(Tweak(foo, before=(1, 2))(3), (1, 2, 3))
+        self.assertEqual(Tweak(foo, after=(1, 2))(3), (3, 1, 2))
+        self.assertEqual(Tweak(foo, before=(1,), after=(2,))(3), (1, 3, 2))
+
+    def test_before(self):
+        def foo(*a):
+            return a
+        self.assertEqual(Before(foo, 1, 2, 3)(4, 5, 6), (1, 2, 3, 4, 5, 6))
+
+    def test_after(self):
+        def foo(*a):
+            return a
+        self.assertEqual(After(foo, 1, 2, 3)(4, 5, 6), (4, 5, 6, 1, 2, 3))
+
+    def test_remove(self):
+        def foo(*a):
+            return a
+        self.assertEqual(Remove(foo, 1, 2)('a', 'b', 'c', 'd'), ('a', 'd'))
+
+    def test_combination(self):
+        def foo(*a):
+            return a
+        self.assertEqual(Remove(Before(foo, 'a', 'b'), 0)('c', 'd'), ('a', 'b', 'd'))
+        self.assertEqual(Remove(Before(After(foo, 'x', 'y'), 'a', 'b'), 1, 3)('h', 'i', 'j', 'k'),
+                         ('a', 'b', 'h', 'j', 'x', 'y'))
+
+    def test_positional_and_keyword_args(self):
         def foo(*a, **k):
             return a, k
         a, k = foo(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (1, 2, 3))
         self.assertEqual(k, dict(a=1, b=2, c=3))
-        curry_foo_1 = Curry(foo, after=(10, 11, 12), keywords=dict(n=11, o=12, p=13))
-        a, k = curry_foo_1(1, 2, 3, a=1, b=2, c=3)
+        cfoo1 = Tweak(foo, after=(10, 11, 12), merge=dict(n=11, o=12, p=13))
+        a, k = cfoo1(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (1, 2, 3, 10, 11, 12))
         self.assertEqual(k, dict(a=1, b=2, c=3, n=11, o=12, p=13))
-        curry_foo_2 = Curry(curry_foo_1, before=(100, 101, 102), keywords=dict(x=101, y=102, z=103))
-        a, k = curry_foo_2(1, 2, 3, a=1, b=2, c=3)
+        cfoo2 = Tweak(cfoo1, before=(100, 101, 102), merge=dict(x=101, y=102, z=103))
+        a, k = cfoo2(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (100, 101, 102, 1, 2, 3, 10, 11, 12))
         self.assertEqual(k, dict(a=1, b=2, c=3, n=11, o=12, p=13, x=101, y=102, z=103))
 

@@ -362,9 +362,19 @@ class TestCommand(unittest.TestCase):
         self.assertEqual(len(test_cmd.output_lines), 0)
         self.assertEqual(test_cmd.rc, 0)
 
+def demo_realtime():
+    """
+    Demonstrate real-time output from sub-process.
+    """
+    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
+        for line in test_cmd:
+            print line
+
 if __name__ == '__main__':
-    # Uncomment to see that output is real-time.
-    #with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
-    #    for line in test_cmd:
-    #        print line
-    unittest.main()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'demo':
+            demo()
+        else:
+            sys.stderr.write('Unknown sub-command: %s\n' % sys.argv[1])
+    else:
+        unittest.main()
