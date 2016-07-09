@@ -368,7 +368,7 @@ def demo_realtime():
     """
     with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
         for line in test_cmd:
-            print line
+            print(line)
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
