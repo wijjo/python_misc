@@ -57,7 +57,12 @@ Compatibility:
   Python 2.x and 3.x
 """
 
+import sys
+if sys.version_info < (3,):
+    range = xrange
+
 from itertools import chain
+
 
 class CurryBase(object):
 
@@ -138,7 +143,7 @@ class Tweak(CurryBase):
         self.merge  = dict(merge)
 
     def prepare_args(self, args):
-        cargs = chain(self.before, (args[i] for i in xrange(len(args)) if i not in self.remove), self.after)
+        cargs = chain(self.before, (args[i] for i in range(len(args)) if i not in self.remove), self.after)
         return tuple(cargs)
 
     def prepare_kwargs(self, kwargs):
