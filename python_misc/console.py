@@ -10,7 +10,7 @@
 #===============================================================================
 
 import sys, copy
-from listutil import flatten_split_strings
+from python_misc.listutil import flatten_split_strings
 
 def _display(f, tag, indent, *msgs, **vars):
     if tag:
@@ -74,7 +74,7 @@ def menu(fixed_choices,
          prompt  = 'Choice'):
     if not message:
         message = 'Menu'
-    print '\n::: %s :::' % message
+    print('\n::: %s :::' % message)
     choices = copy.copy(fixed_choices)
     imax = len(choices)
     iother = None
@@ -98,12 +98,12 @@ def menu(fixed_choices,
         choice = choices[i]
         if i+1 == idefault:
             default  = choice
-            print '  [%d]*%s' % (i+1, choice)
+            print('  [%d]*%s' % (i+1, choice))
         elif choice == default:
             idefault = i+1
-            print '  [%d]*%s' % (i+1, choice)
+            print('  [%d]*%s' % (i+1, choice))
         else:
-            print '  [%d] %s' % (i+1, choice)
+            print('  [%d] %s' % (i+1, choice))
     if idefault is not None:
         prompt += ' (default=%s)' % idefault
     while True:

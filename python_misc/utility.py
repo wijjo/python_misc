@@ -4,9 +4,9 @@ import sys
 import os
 import shutil
 import re
-import logger
-import run
 import inspect
+import python_misc.logger as logger
+import python_misc.run as run
 
 
 class G:
@@ -80,11 +80,11 @@ class FileTool(object):
                         if self.rstrip:
                             line = line.rstrip()
                         yield line
-                except (IOError, OSError), e:
+                except (IOError, OSError) as e:
                     logger.abort('Unable to read from "%s".' % path, e)
             finally:
                 f.close()
-        except (IOError, OSError), e:
+        except (IOError, OSError) as e:
             logger.abort('Unable to open "%s".' % path, e)
 
     def save(self, path, *sources):
@@ -96,7 +96,7 @@ class FileTool(object):
                 try:
                     f = open(path, 'w')
                     self._write(f, sources)
-                except (IOError, OSError), e:
+                except (IOError, OSError) as e:
                     logger.abort('Unable to write to "%s".' % path, e)
             finally:
                 f.close()

@@ -10,7 +10,7 @@
 #===============================================================================
 
 import sys, os, re
-import console
+import python_misc.console as console
 
 class Environment(object):
     @staticmethod

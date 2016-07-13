@@ -2,8 +2,8 @@
 
 import os
 import copy
-import logger
-import listutil
+import python_misc.logger as logger
+import python_misc.listutil as listutil
 
 
 #===============================================================================
@@ -69,7 +69,7 @@ class Config(object):
                         f.write('# %s\n' % spec.desc)
                     f.write('%s%s\n' % (comment, spec.name_value_string()))
             logger.info('Configuration file saved: %s' % self.file_name)
-        except (IOError, OSError), e:
+        except (IOError, OSError) as e:
             logger.abort('Unable to save configuration file: %s' % self.file_name, e)
 
     def load_for_paths(self, *paths):
@@ -106,5 +106,5 @@ class Config(object):
             for spec in self.specs:
                 if spec.name in locals_tmp:
                     self.data[spec.name] = locals_tmp[spec.name]
-        except Exception, e:
+        except Exception as e:
             logger.abort('Error reading configuration file: %s' % path, e)

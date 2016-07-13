@@ -103,7 +103,7 @@ class Config(object):
         parser = SafeConfigParser()
         try:
             parser.read(config_path_or_paths)
-        except Exception, e:
+        except Exception as e:
             raise ConfigException('Failed to load configuration from "%s"'
                                         % config_path_or_paths, str(e))
         meta   = cls.Meta(required, numbers, lists, keywords)
@@ -198,7 +198,7 @@ class Config(object):
                 name_inc = name_inc.lower()
                 if name_inc in self.section_map:
                     section_inc = self.section_map[name_inc]
-                    print '[%s] => %s' % (section_name, section_inc)
+                    print('[%s] => %s' % (section_name, section_inc))
                     self._process_includes(name_inc, processed)
                     self._copy_section(section_inc, section)
 
@@ -207,10 +207,10 @@ class Config(object):
             if attr_name != Config.include_entry:
                 if attr_name in self.meta.lists:
                     if section_src.a[attr_name]:
-                        print '##### SRC[%s]=%s' % (attr_name, section_src.a[attr_name])
-                        print '##### DST1[%s]=%s' % (attr_name, section_dst.a[attr_name])
+                        print('##### SRC[%s]=%s' % (attr_name, section_src.a[attr_name]))
+                        print('##### DST1[%s]=%s' % (attr_name, section_dst.a[attr_name]))
                         section_dst.a[attr_name].extend(section_src.a[attr_name])
-                        print '##### DST2[%s]=%s' % (attr_name, section_dst.a[attr_name])
+                        print('##### DST2[%s]=%s' % (attr_name, section_dst.a[attr_name]))
                 elif attr_name in self.meta.keywords:
                     for keyword in section_src.a[attr_name]:
                         if keyword not in section_dst.a[attr_name]:

@@ -456,7 +456,7 @@ def runTest(
     expect
 ):
     testResults.total += 1
-    print '=== Test %d ===' % testResults.total
+    print('=== Test %d ===' % testResults.total)
     log.dump(0, {"tag,key,options": (siteTag,
                                      masterKey,
                                      requireDigit,
@@ -492,7 +492,7 @@ def test():
     runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 0, 0, 'T5eB8F/J2ghv')
     runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 1, 0, 'T5eB8FOJ2ghv')
     runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 0, 1, '857080182482')
-    print '=== Summary ==='
+    print('=== Summary ===')
     log.dump(0, Total  = testResults.total);
     log.dump(0, Passed = testResults.passed);
     log.dump(0, Failed = testResults.failed);

@@ -26,7 +26,7 @@ class VolumeManager(diskutil.VolumeManager):
                 for volume in volset:
                     f.write('# name=%s size=%d id=%s\n# %s\n'
                                 % (volume.name, volume.size, volume.volid, volume.volid))
-        except (IOError, OSError), e:
+        except (IOError, OSError) as e:
             logger.abort('Failed to generate volume ID list file "%s".' % LIST_PATH, e)
 
     def cs_volids(self):
@@ -40,7 +40,7 @@ class VolumeManager(diskutil.VolumeManager):
                     s = line.strip()
                     if not s.startswith('#'):
                         volids.append(s)
-        except (IOError, OSError), e:
+        except (IOError, OSError) as e:
             logger.abort('Failed to read volume ID list file "%s".' % LIST_PATH, e)
         return volids
 

@@ -3,9 +3,9 @@
 import os
 import subprocess
 import re
-import logger
-import run
-import utility
+import python_misc.logger as logger
+import python_misc.run as run
+import python_misc.utility as utility
 
 
 class G:
@@ -174,9 +174,7 @@ def get_changes_by_time():
     """
     Provide file status ordered by time.
     """
-    changes = list(iter_changes())
-    changes.sort(cmp=lambda x, y: cmp(x.modified, y.modified))
-    return changes
+    return sorted(list(iter_changes()), key=lambda x: x.modified)
 
 
 def remote_branch_exists(url, branch, verbose=False):

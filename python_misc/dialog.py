@@ -75,7 +75,7 @@ class Kdialog(DialogBase):
 class SudoBase(object):
     def run(self, cmd):
         if verbose:
-            print 'SUDO: %s' % cmd
+            print('SUDO: %s' % cmd)
         return self.dialog_run(cmd)
 
 class Sudo(SudoBase):

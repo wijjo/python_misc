@@ -4,7 +4,7 @@ import sys
 import os
 import subprocess
 import tempfile
-import logger
+import python_misc.logger as logger
 
 ### DEPRECATED ###
 # Use cmd module instead.
@@ -24,7 +24,7 @@ def pipe_cmd(*args, **kwargs):
         finally:
             proc.stdout.close()
             proc.wait()
-    except Exception, e:
+    except Exception as e:
         logger.warning('Exception running command: %s' % ' '.join(args), e)
 
 
@@ -64,7 +64,7 @@ class Command(object):
                 popen_keywords['stdin'] = self.input
         try:
             self.proc = subprocess.Popen(args2, **popen_keywords)
-        except Exception, e:
+        except Exception as e:
             logger.abort('Error opening command:', [self.cmd_text, e])
             self.proc = None
 
@@ -79,7 +79,7 @@ class Command(object):
             try:
                 for line in iter(self.proc.stdout.readline, ''):
                     yield line.rstrip()
-            except Exception, e:
+            except Exception as e:
                 logger.warning('Error processing command output:', [self.cmd_text, e])
             self.proc.stdout.close()
             if not self.stdin is None:
@@ -98,7 +98,7 @@ class Command(object):
             return
         lines = [line for line in self.pipe()]
         if lines and echo:
-            print '\n'.join(lines)
+            print('\n'.join(lines))
         if not self.stdin is None:
             self.stdin.close()
         return lines
@@ -129,7 +129,7 @@ def run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
                     logger.abort(errmsg, arg_string())
                 else:
                     logger.error(errmsg, arg_string())
-    except Exception, e:
+    except Exception as e:
         if abort:
             logger.abort(e, arg_string())
         else:
@@ -182,5 +182,5 @@ class Runner:
     def expand(self, s):
         try:
             return os.path.expanduser(os.path.expandvars(s)) % self.kwargs
-        except ValueError, e:
+        except ValueError as e:
             logger.abort(e, s)

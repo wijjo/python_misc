@@ -17,7 +17,7 @@ def _format(sin, **vars):
                 # Support old and new formatting syntax
                 sout = (sin % vars).format(**vars)
                 break
-            except KeyError, e:
+            except KeyError as e:
                 if i == 0:
                     vars = vars.copy()
                 vars[e] = '???'
