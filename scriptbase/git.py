@@ -3,9 +3,9 @@
 import os
 import subprocess
 import re
-import python_misc.logger as logger
-import python_misc.run as run
-import python_misc.utility as utility
+import scriptbase.logger as logger
+import scriptbase.run as run
+import scriptbase.utility as utility
 
 
 class G:

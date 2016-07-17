@@ -5,8 +5,8 @@ import os
 import shutil
 import re
 import inspect
-import python_misc.logger as logger
-import python_misc.run as run
+import scriptbase.logger as logger
+import scriptbase.run as run
 
 
 class G:

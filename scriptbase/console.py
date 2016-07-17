@@ -10,7 +10,7 @@
 #===============================================================================
 
 import sys, copy
-from python_misc.listutil import flatten_split_strings
+from scriptbase.listutil import flatten_split_strings
 
 def _display(f, tag, indent, *msgs, **vars):
     if tag:

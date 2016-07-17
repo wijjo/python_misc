@@ -10,7 +10,7 @@
 #===============================================================================
 
 import sys, os, re
-import python_misc.console as console
+import scriptbase.console as console
 
 class Environment(object):
     @staticmethod

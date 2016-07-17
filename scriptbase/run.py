@@ -4,7 +4,7 @@ import sys
 import os
 import subprocess
 import tempfile
-import python_misc.logger as logger
+import scriptbase.logger as logger
 
 ### DEPRECATED ###
 # Use command module instead.

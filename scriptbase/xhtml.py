@@ -1,4 +1,4 @@
-from python_misc.textfile import TextFile
+from scriptbase.textfile import TextFile
 
 class DEFAULT:
     # DOCTYPE can have multiple arguments

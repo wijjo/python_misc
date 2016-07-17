@@ -43,7 +43,7 @@ and the code itself. Better documentation is planned.
 
 Sample code::
 
-  import python_misc.cli as cli
+  import scriptbase.cli as cli
 
   TIMEOUT = 60
 
@@ -80,7 +80,7 @@ Sample code::
   if __name__ == '__main__':
       cli.main()
 
-The sample is runnable, e.g. save it as sample.py and make sure python_misc
+The sample is runnable, e.g. save it as sample.py and make sure scriptbase
 is in your PYTHONPATH.
 
 Compatibility
@@ -97,13 +97,13 @@ import sys
 import os
 import copy
 import inspect
-import python_misc.run as run
-import python_misc.utility as utility
-import python_misc.logger as logger
+import scriptbase.run as run
+import scriptbase.utility as utility
+import scriptbase.logger as logger
 try:
     import argparse
 except ImportError:
-    import python_misc.python.argparse as argparse
+    import scriptbase.python.argparse as argparse
 
 
 #===============================================================================

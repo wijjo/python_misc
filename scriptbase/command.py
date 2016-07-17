@@ -28,7 +28,7 @@ not been tested with Python 2 versions older than 2.7.
 
 Examples:
 
-from python_misc.cmd import Command
+from scriptbase.cmd import Command
 
 # Output to console
 with Command('ls', '-l') as lscmd:
@@ -88,7 +88,7 @@ import os
 import subprocess
 import tempfile
 
-# Import six if available globally or locally from python_misc/python
+# Import six if available globally or locally from scriptbase/python
 # Python2-3 compatibility helper library.
 try:
     import six

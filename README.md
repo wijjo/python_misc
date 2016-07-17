@@ -1,4 +1,2 @@
-# python_misc
-Miscellaneous Python utility modules
-
-A loosely connected assortment of useful stuff
+# scriptbase
+Python base modules for accelerating script development
