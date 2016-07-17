@@ -7,7 +7,7 @@ import tempfile
 import python_misc.logger as logger
 
 ### DEPRECATED ###
-# Use cmd module instead.
+# Use command module instead.
 
 def pipe_cmd(*args, **kwargs):
     """

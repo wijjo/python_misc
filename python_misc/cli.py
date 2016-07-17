@@ -14,64 +14,84 @@
 # limitations under the License.
 
 """
-This module wraps argparse to make it simpler to define a CLI that supports
-multi-level commands, options, and help.
+==========
+CLI Module
+==========
 
-CLIs are defined using a declarative approach. Decorators declare the main
-program, along with the individual commands and sub-commands. Once the
-implementation functions are declared using the decorators a single call to
-cli.main() runs the program after parsing the command line options.
+Introduction
+------------
+This module wraps argparse to make it easier to define a command line
+interface, a.k.a. CLI, that supports multi-level commands, options, and help.
+It adapts argparse's procedural interface with a declarative wrapper theat
+brings the CLI metadata closer to the implementation.
 
-Note that the decorated functions can have any name. They are accessed by
-reference, not name. The convention used in the sample code names command
-implementation functions as the command names with a leading underscore, and
-the implementation function for the Main function is simply _main().
+Decorators declare the main program, along with the individual commands and
+sub-commands. Once the implementation functions are declared using the
+decorators a single call to cli.main() runs the program after parsing the
+command line options.
 
-There is no user guide yet. The sample program below will hopefully help you
-get started. More advanced features may be discovered in doc strings, comments,
+Note that the decorated functions can have any name, but if no "name" attribute
+is specified the function names are used as the command names. The optional
+"name" attribute is particularly useful when command names are invalid Python
+symbols, e.g. when using a digit as the first charactor of the command name.
+
+Sample
+------
+There is no user guide yet. The sample program below will hopefully help to get
+you started. More advanced features may be discovered in doc strings, comments,
 and the code itself. Better documentation is planned.
 
-    import python_misc.cli as cli
+Sample code::
 
-    @cli.Command('download', 'download page', args=[
-        cli.String('url', 'URL of page to download'),
-        cli.Boolean('pdf', 'convert to a PDF', '--pdf')])
-    def download(runner):
-        if runner.cmdargs.dryrun:
-            print('Download(dryrun): %s' % runner.cmdargs.url)
-        elif runner.cmdargs.pdf:
-            print('Download(PDF): %s' % runner.cmdargs.url)
-        else:
-            print('Download(HTML): %s' % runner.cmdargs.url)
+  import python_misc.cli as cli
 
-    @cli.Command('show', 'display various statistics', args=[
-        cli.String('url', 'URL of page to download')])
-    def show(runner):
-        print('show')
+  TIMEOUT = 60
 
-    @cli.Command('route', 'display route to host', parent=show)
-    def show_route(runner):
-        print('show_route(%s)' % runner.cmdargs.url)
+  @cli.Main('Access remote web pages', support_dryrun=True, args=[
+      cli.Integer('timeout', 'time-out in seconds', '--timeout', default=TIMEOUT)])
+  def main(runner):
+      global TIMEOUT
+      TIMEOUT = runner.cmdargs.timeout
 
-    @cli.Command('latency', 'display latency to host', parent=show)
-    def show_latency(runner):
-        print('show_latency(%s)' % runner.cmdargs.url)
+  @cli.Command(description='download page', args=[
+      cli.String('url', 'URL of page to download'),
+      cli.Boolean('pdf', 'convert to a PDF', '--pdf')])
+  def download(runner):
+      if runner.cmdargs.dryrun:
+          print('Download(dryrun): %s' % runner.cmdargs.url)
+      elif runner.cmdargs.pdf:
+          print('Download(PDF): %s' % runner.cmdargs.url)
+      else:
+          print('Download(HTML): %s' % runner.cmdargs.url)
 
-    @cli.Main('Access remote web pages', support_dryrun=True, args=[
-        cli.Integer('timeout', 'time-out in seconds', '--timeout', default=60)])
-    def main(runner):
-        print('main: timeout=%d' % runner.cmdargs.timeout)
+  @cli.Command(description='display various statistics', args=[
+      cli.String('url', 'URL of page to download')])
+  def show(runner):
+      print('show')
 
-    if __name__ == '__main__':
-        cli.main()
+  @cli.Command(description='display route to host', parent=show)
+  def route(runner):
+      print('show_route(%s)' % runner.cmdargs.url)
+
+  @cli.Command(description='display latency to host', parent=show)
+  def latency(runner):
+      print('show_latency(%s)' % runner.cmdargs.url)
+
+  if __name__ == '__main__':
+      cli.main()
 
 The sample is runnable, e.g. save it as sample.py and make sure python_misc
 is in your PYTHONPATH.
 
-Compatibility:
-
-    Python 2.7 or 3.5 and later.
+Compatibility
+-------------
+Python 2.7 or 3.5 and later.
 """
+
+# Future features:
+# - YAML configuration
+# - Saved option sets
+# - Wrap existing external commands with DSL
 
 import sys
 import os
