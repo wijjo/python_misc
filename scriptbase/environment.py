@@ -1,4 +1,17 @@
-#!/usr/bin/env python
+# Copyright 2016 Steven Cooper
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #===============================================================================
 #===============================================================================
 # environment
@@ -10,7 +23,7 @@
 #===============================================================================
 
 import sys, os, re
-import scriptbase.console as console
+from . import logger
 
 class Environment(object):
     @staticmethod
@@ -23,7 +36,7 @@ class Environment(object):
     def strip_path(name, path, *todel):
         todel = [t for t in todel if t is not None]
         if todel:
-            console.info('Stripping from path (%s):\n   %s' % (name, '\n   '.join(todel)))
+            logger.info('Stripping from path (%s):\n   %s' % (name, '\n   '.join(todel)))
         return ':'.join([dir for dir in path.split(':')
                             if not [item for item in todel if dir.startswith(item)]])
     @staticmethod
@@ -65,7 +78,7 @@ class Environment(object):
         for name in self.vars:
             if name not in os.environ or self.vars[name] != os.environ[name]:
                 if verbose:
-                    console.info('ENV: %s=%s' % (name, self.vars[name]))
+                    logger.info('ENV: %s=%s' % (name, self.vars[name]))
                 os.environ[name] = self.vars[name]
     def diff(self, other):
         tomod = []

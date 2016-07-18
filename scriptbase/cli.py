@@ -13,6 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+import os
+import copy
+import inspect
+
+from . import run
+from . import utility
+from . import logger
+
+try:
+    import argparse
+except ImportError:
+    from .python import argparse
+
 """
 ==========
 CLI Module
@@ -43,7 +57,7 @@ and the code itself. Better documentation is planned.
 
 Sample code::
 
-  import scriptbase.cli as cli
+  from scriptbase import cli
 
   TIMEOUT = 60
 
@@ -93,23 +107,10 @@ Python 2.7 or 3.5 and later.
 # - Saved option sets
 # - Wrap existing external commands with DSL
 
-import sys
-import os
-import copy
-import inspect
-import scriptbase.run as run
-import scriptbase.utility as utility
-import scriptbase.logger as logger
-try:
-    import argparse
-except ImportError:
-    import scriptbase.python.argparse as argparse
-
-
 #===============================================================================
-class Argument(object):
+class ArgumentSpec(object):
     """
-    Argument class used to declare typed arguments and options.
+    ArgumentSpec class is used to declare typed arguments and options.
     """
 #===============================================================================
     def __init__(self, dest, help, *args, **kwargs):
@@ -121,38 +122,38 @@ class Argument(object):
             self.kwargs['help'] += ' (default=%s)' % str(self.kwargs['default'])
 
     def __str__(self):
-        return 'Argument:%s(%s)' % (self.kwargs['dest'], self.__class__.__name__)
+        return 'ArgumentSpec:%s(%s)' % (self.kwargs['dest'], self.__class__.__name__)
 
 #===============================================================================
-class String(Argument):
+class String(ArgumentSpec):
     """
-    String type Argument subclass.
+    String type ArgumentSpec subclass.
     """
 #===============================================================================
     def __init__(self, dest, help, *args, **kwargs):
         kwargs['action'] = 'store'
-        Argument.__init__(self, dest, help, *args, **kwargs)
+        ArgumentSpec.__init__(self, dest, help, *args, **kwargs)
 
 #===============================================================================
-class Boolean(Argument):
+class Boolean(ArgumentSpec):
     """
-    Boolean type Argument subclass.
+    Boolean type ArgumentSpec subclass.
     """
 #===============================================================================
     def __init__(self, dest, help, *args, **kwargs):
         kwargs['action'] = 'store_true'
-        Argument.__init__(self, dest, help, *args, **kwargs)
+        ArgumentSpec.__init__(self, dest, help, *args, **kwargs)
 
 #===============================================================================
-class Integer(Argument):
+class Integer(ArgumentSpec):
     """
-    Integer type Argument subclass.
+    Integer type ArgumentSpec subclass.
     """
 #===============================================================================
     def __init__(self, dest, help, *args, **kwargs):
         kwargs['action'] = 'store'
         kwargs['type'] = int
-        Argument.__init__(self, dest, help, *args, **kwargs)
+        ArgumentSpec.__init__(self, dest, help, *args, **kwargs)
 
 #===============================================================================
 class Verb(object):
@@ -163,6 +164,7 @@ class Verb(object):
 #===============================================================================
 
     root = None
+    parser = None
     verbs_by_function_ref = {}
 
     def __init__(self, name=None,
@@ -181,20 +183,20 @@ class Verb(object):
             self.description = description
         self.is_root = is_root
         self.function = function
-        self.arguments = []
+        self.arg_specs = []
         self.child_verbs = []
         self.dirty = True
         self.aliases = aliases
         badargs = []
-        for arg in args:
-            if isinstance(arg, Verb):
-                self.child_verbs.append(arg)
-            elif isinstance(arg, Argument):
-                self.arguments.append(arg)
+        for arg_spec in args:
+            if isinstance(arg_spec, Verb):
+                self.child_verbs.append(arg_spec)
+            elif isinstance(arg_spec, ArgumentSpec):
+                self.arg_specs.append(arg_spec)
             else:
-                badargs.append(arg)
+                badargs.append(arg_spec)
         for badarg in badargs:
-            sys.stderr.write('* CLI: ignoring bad element: %s*\n' % repr(badarg))
+            sys.stderr.write('* CLI: ignoring bad argument specification: %s*\n' % repr(badarg))
         if not self.is_root:
             if parent is None:
                 Verb.root.add_verb(self)
@@ -229,7 +231,7 @@ class Verb(object):
 
     def __str__(self):
         self._update()
-        sargs = '(%s)' % ', '.join([str(a) for a in self.arguments])
+        sargs = '(%s)' % ', '.join([str(a) for a in self.arg_specs])
         sverb_list = [str(verb).replace('\n', '\n      ') for verb in self.child_verbs]
         sverbs = '\n'.join(sverb_list)
         return '''Verb:%s%s:
@@ -244,18 +246,21 @@ class Verb(object):
             self.dirty = False
 
     @classmethod
-    def parse_all(cls, description, additional_arguments):
+    def get_parser(cls, description, add_arg_specs):
         """
         Parse all arguments and options.
         """
+        # Support tests with multiple command lines run against one specification.
+        if cls.parser:
+            return cls.parser
         cls.root.description = description
-        if additional_arguments:
-            cls.root.arguments.extend(additional_arguments)
-        parser = argparse.ArgumentParser(
-                description='  %s' % '\n  '.join(cls._description_lines()),
-                formatter_class=argparse.RawDescriptionHelpFormatter)
-        cls.root.configure_parser(parser)
-        return parser.parse_args()
+        if add_arg_specs:
+            cls.root.arg_specs.extend(add_arg_specs)
+        cls.parser = argparse.ArgumentParser(
+            description='  %s' % '\n  '.join(cls._description_lines()),
+            formatter_class=argparse.RawDescriptionHelpFormatter)
+        cls.root.configure_parser(cls.parser)
+        return cls.parser
 
     @classmethod
     def _description_lines(cls):
@@ -286,8 +291,8 @@ class VerbBuilder(object):
         self.verb = verb
 
     def build(self, add_help=False):
-        for arg in self.verb.arguments:
-            self.parser.add_argument(*arg.args, **arg.kwargs)
+        for arg_spec in self.verb.arg_specs:
+            self.parser.add_argument(*arg_spec.args, **arg_spec.kwargs)
         if self.verb.function:
             self.parser.set_defaults(func=self.verb.function)
         if self.verb.get_verbs():
@@ -350,7 +355,7 @@ class Main(object):
                        support_dryrun=False,
                        support_pause=False):
         self.description = description
-        self.args = args
+        self.arg_specs = args
         self.support_verbose = support_verbose
         self.support_dryrun = support_dryrun
         self.support_pause = support_pause
@@ -363,25 +368,31 @@ class Main(object):
         Main.instance = self
 
 #===============================================================================
-def main():
+def main(command_line=sys.argv[1:]):
     """
-    Main CLI function to parse the arguments and invoke the appropriate function.
+    Main CLI function to parse the arguments and invoke the appropriate command
+    function. Returns any result provided by the command function, which should
+    be a system exit code, i.e. 0 for success or non-zero for failure.
     """
 #===============================================================================
     if not Main.instance:
         logger.abort('No @cli.Main() was found.')
-    args = copy.copy(list(Main.instance.args))
+    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
     if Main.instance.support_verbose:
-        args.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
+        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
     if Main.instance.support_dryrun:
-        args.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
+        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
     if Main.instance.support_pause:
-        args.append(Boolean('pause', "pause before executing each command", '--pause'))
-    runner = run.Runner(Verb.parse_all(Main.instance.description, args))
-    Main.instance.function(runner)
+        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
+    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
+    cmdargs = parser.parse_args(args=command_line)
+    runner = run.Runner(cmdargs)
     try:
+        # Invoke main function (frequently does little or nothing).
+        Main.instance.function(runner)
+        # Invoke command implementation function.
         if hasattr(runner.cmdargs, 'func'):
-            runner.cmdargs.func(runner)
+            return runner.cmdargs.func(runner)
     except KeyboardInterrupt:
         sys.exit(255)
 

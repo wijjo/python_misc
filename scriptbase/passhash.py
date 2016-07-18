@@ -1,10 +1,22 @@
-#!/usr/bin/env python
+# Copyright 2016 Steven Cooper
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 ################################################################################
 ################################################################################
 # Password Hasher module and runnable script
 #
 # Author: Steve Cooper
-# License: Mozilla
 # Created: 01/04/11
 #
 # SHA1 code based on:
@@ -437,100 +449,3 @@ def convertToDigits(sInput, seed, lenOut):
     if i < len(sInput):
         s += sInput[i:]
     return s
-
-class TestResults(object):
-    def __init__(self):
-        self.total = self.passed = self.failed = 0
-
-testResults = TestResults()
-
-def runTest(
-    siteTag,
-    masterKey,
-    hashWordSize,
-    requireDigit,
-    requirePunctuation,
-    requireMixedCase,
-    restrictSpecial,
-    restrictDigits,
-    expect
-):
-    testResults.total += 1
-    print('=== Test %d ===' % testResults.total)
-    log.dump(0, {"tag,key,options": (siteTag,
-                                     masterKey,
-                                     requireDigit,
-                                     requirePunctuation,
-                                     requireMixedCase,
-                                     restrictSpecial,
-                                     restrictDigits,
-                                     hashWordSize)})
-    result = generateHashWord(siteTag,
-                              masterKey,
-                              hashWordSize,
-                              requireDigit,
-                              requirePunctuation,
-                              requireMixedCase,
-                              restrictSpecial,
-                              restrictDigits);
-    if result == expect:
-        log.dump(0, {"result *PASS*": result})
-        testResults.passed += 1
-    else:
-        log.dump(0, {"result *FAIL*": (result, "expect=" + expect)})
-        testResults.failed += 1
-    log.flush()
-
-def test():
-    log.verbosity = 1
-    runTest("abcdef"  , "ghijkl"   ,  8, 0, 0, 0, 0, 0, "2T0SYXf1")
-    runTest("abcdefgh", "987654321", 16, 0, 0, 0, 0, 0, "DiLlvt4zp8KtHoFY")
-    runTest("aaaa"    , "bbbb"     ,  6, 0, 0, 1, 0, 0, "DCi393")
-    runTest("aaaa"    , "bbbb"     ,  6, 0, 1, 1, 0, 0, '"Ci393')
-    runTest("cccc"    , "bbbb"     ,  4, 0, 0, 0, 0, 0, 'pNKi')
-    runTest("cccc"    , "bbbb"     ,  4, 1, 0, 0, 0, 0, 'pNK2')
-    runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 0, 0, 'T5eB8F/J2ghv')
-    runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 1, 0, 'T5eB8FOJ2ghv')
-    runTest("zyxwvuts", "abcdefghi", 12, 0, 0, 0, 0, 1, '857080182482')
-    print('=== Summary ===')
-    log.dump(0, Total  = testResults.total);
-    log.dump(0, Passed = testResults.passed);
-    log.dump(0, Failed = testResults.failed);
-
-#===============================================================================
-if __name__ == '__main__':
-#===============================================================================
-
-    parser = optparse.OptionParser()
-    parser.set_usage('%prog [OPTIONS] domain password')
-    parser.add_option('-a', '--alphanumeric' , dest = 'alphanumeric', action = 'store_true',
-                      help = 'allow only alpha-numeric characters'),
-    parser.add_option('-d', '--digit' , dest = 'digit', action = 'store_true',
-                      help = 'require at least one digit'),
-    parser.add_option('-l', '--length' , dest = 'length', action = 'store', type = 'int',
-                      help = 'length of generated hash word'),
-    parser.add_option('-m', '--mixedcase', dest = 'mixedcase', action = 'store_true',
-                      help = 'require a mix of upper and lower case'),
-    parser.add_option('-n', '--numeric', dest = 'numeric', action = 'store_true',
-                      help = 'create numeric code, e.g. for PIN'),
-    parser.add_option('-p', '--punctuation', dest = 'punctuation', action = 'store_true',
-                      help = 'require at least one punctuation character'),
-    parser.add_option('-t', '--test', dest = 'test', action = 'store_true',
-                      help = 'run self test sequence'),
-    (options, args) = parser.parse_args()
-    if len(args) != 2 and not options.test:
-        parser.error('Exactly 2 arguments are required for domain and password unless -t is used')
-    if not options.length:
-        options.length = 8
-    if options.test:
-        test()
-    else:
-        result = generateHashWord(args[0],
-                                  args[1],
-                                  options.length,
-                                  options.digit,
-                                  options.punctuation,
-                                  options.mixedcase,
-                                  options.alphanumeric,
-                                  options.numeric);
-        print result

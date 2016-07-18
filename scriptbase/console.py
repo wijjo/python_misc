@@ -10,7 +10,7 @@
 #===============================================================================
 
 import sys, copy
-from scriptbase.listutil import flatten_split_strings
+from . import listutil
 
 def _display(f, tag, indent, *msgs, **vars):
     if tag:
@@ -21,7 +21,7 @@ def _display(f, tag, indent, *msgs, **vars):
         sindent = ' ' * indent
     else:
         sindent = ''
-    for msg in flatten_split_strings('\n', *msgs, **vars):
+    for msg in listutil.flatten_split_strings('\n', *msgs, **vars):
         if type(msg) is Exception:
             f.write('%s%s%s Exception: %s' % (pre, sindent, msg.__class__.__name__, str(msg)))
         else:

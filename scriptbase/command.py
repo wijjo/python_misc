@@ -12,6 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+import os
+import subprocess
+import tempfile
+
+# Import six if available globally or locally from scriptbase/python
+# Python2-3 compatibility helper library.
+try:
+    import six
+except ImportError:
+    from .python import six
+
 """
 Wraps the standard Python subprocess module to simplify common usage patterns.
 
@@ -83,19 +95,8 @@ with Command('grep', 'abc').pipe_in(open('/path/to/file')) as grepcmd:
 print('grep returned %d' % grepcmd.rc)
 """
 
-import sys
-import os
-import subprocess
-import tempfile
 
-# Import six if available globally or locally from scriptbase/python
-# Python2-3 compatibility helper library.
-try:
-    import six
-except ImportError:
-    from python import six
-
-
+#===============================================================================
 class Command(object):
     """
     Run a single command with various methods for accessing results.
@@ -110,20 +111,25 @@ class Command(object):
 
     The return code rc member is None until outside the "with" block.
     """
+#===============================================================================
 
     class NotInWithBlock(RuntimeError):
         """
-        Raised when attempting to run a Command object that was created outside of a "with" block.
+        Raised when attempting to run a Command object that was created outside
+        of a "with" block.
         """
         def __init__(self):
-            RuntimeError.__init__(self, 'Illegal attempt to use a Command without a "with" block.')
+            RuntimeError.__init__(self,
+                    'Illegal attempt to use a Command without a "with" block.')
 
     class AlreadyRunning(RuntimeError):
         """
-        Raised when attempting to set options for a Command object that is already running.
+        Raised when attempting to set options for a Command object that is
+        already running.
         """
         def __init__(self):
-            RuntimeError.__init__(self, 'Illegal attempt to set Command options after it is running.')
+            RuntimeError.__init__(self,
+                    'Illegal attempt to set Command options after it is running.')
 
     def __init__(self, *args):
         """
@@ -261,120 +267,3 @@ class Command(object):
                 input_source.write(str.encode(os.linesep))
         input_source.seek(0)
         return input_source
-
-import unittest
-
-class TestCommand(unittest.TestCase):
-
-    def test_full_iteration(self):
-        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-            lines = [line for line in test_cmd]
-        self.assertEqual(lines, [b'111', b'222', b'333'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_partial_iteration(self):
-        lines = []
-        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-            for line in test_cmd:
-                lines.append(line)
-                break
-        self.assertEqual(lines, [b'111'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-
-    def test_captured_on_close(self):
-        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-            pass
-        self.assertEqual(test_cmd.output_lines, [b'111', b'222', b'333'])
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_all_at_once(self):
-        with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
-            lines = test_cmd.read_lines()
-        self.assertEqual(lines, [b'111', b'222', b'333'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_console(self):
-        with Command('bash', '-c', 'ls -l /tmp > /dev/null') as test_cmd:
-            test_cmd.run()
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_with_block_exception(self):
-        test_cmd = Command('bash', '-c', 'for i in 111 222 333; do echo $i; done')
-        self.assertRaises(Command.NotInWithBlock, test_cmd.read_lines)
-
-    def test_output_pipe(self):
-        lines = []
-        with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
-            with test_cmd.pipe_out('grep', '[bd]') as grep_cmd:
-                lines = [line for line in grep_cmd]
-            self.assertEqual(len(test_cmd.output_lines), 0)
-            self.assertEqual(grep_cmd.rc, 0)
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_input_pipe(self):
-        lines = []
-        with Command('bash', '-c', 'for i in a b c d e; do echo $i; done') as test_cmd:
-            with Command('grep', '[bd]').pipe_in(test_cmd) as grep_cmd:
-                lines = [line for line in grep_cmd]
-            self.assertEqual(len(grep_cmd.output_lines), 0)
-            self.assertEqual(grep_cmd.rc, 0)
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_input_bytes(self):
-        lines = []
-        with Command('grep', '[bd]').pipe_in(b'a\nb\n\c\nd\n\e\n') as test_cmd:
-            lines = [line for line in test_cmd]
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_input_string(self):
-        lines = []
-        with Command('grep', '[bd]').pipe_in('a\nb\n\c\nd\n\e\n') as test_cmd:
-            lines = [line for line in test_cmd]
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_input_list(self):
-        lines = []
-        with Command('grep', '[bd]').pipe_in(['a', 'b', 'c', 'd', 'e']) as test_cmd:
-            lines = [line for line in test_cmd]
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-    def test_input_stream(self):
-        lines = []
-        tmp = tempfile.SpooledTemporaryFile()
-        tmp.write(b'a\nb\n\c\nd\n\e\n')
-        tmp.seek(0)
-        with Command('grep', '[bd]').pipe_in(tmp) as test_cmd:
-            lines = [line for line in test_cmd]
-        self.assertEqual(lines, [b'b', b'd'])
-        self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
-
-def demo_realtime():
-    """
-    Demonstrate real-time output from sub-process.
-    """
-    with Command('bash', '-c', 'for i in 111 222 333; do echo $i; sleep 1; done') as test_cmd:
-        for line in test_cmd:
-            print(line)
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        if sys.argv[1] == 'demo':
-            demo()
-        else:
-            sys.stderr.write('Unknown sub-command: %s\n' % sys.argv[1])
-    else:
-        unittest.main()
