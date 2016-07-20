@@ -5,7 +5,7 @@
 import os
 import time
 from .. import run
-from .. import logger
+from .. import console
 import plistlib
 
 
@@ -56,10 +56,10 @@ class PasswordProvider(object):
         """
         if self.password is None and not self.get_password is None:
             if self.message:
-                logger.info(self.message)
+                console.info(self.message)
             self.password = self.get_password()
         if self.password is None:
-            logger.abort(self.error_message)
+            console.abort(self.error_message)
         return self.password
 
 
@@ -101,15 +101,15 @@ class VolumeManager(object):
         for volume in volset:
             if os.path.exists(volume.volid):
                 if volume.status != 'Mounted':
-                    logger.info('Mounting: %s' % volume.volid)
+                    console.info('Mounting: %s' % volume.volid)
                     self._mount_image(volume, volset.password_provider())
             else:
                 if volume.status == 'Locked':
-                    logger.info('Unlocking and mounting: "%s" (%s)'
+                    console.info('Unlocking and mounting: "%s" (%s)'
                                     % (volume.name, volume.volid))
                     self._unlock_volume(volume, volset.password_provider())
                 elif not volume.status is None:
-                    logger.info('Mounting: "%s" (%s)' % (volume.name, volume.volid))
+                    console.info('Mounting: "%s" (%s)' % (volume.name, volume.volid))
                     self._mount_volume(volume)
 
     def _make_volume(self, volid):
@@ -157,16 +157,16 @@ class VolumeManager(object):
         cmd = DiskutilCommand('mount', volume.volid, dryrun=self.dryrun)
         output = cmd.run()
         if cmd.retcode != 0:
-            logger.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), output)
-        logger.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
+            console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), output)
+        console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
     def _unlock_volume(self, volume, password):
         cmd = CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password,
                                  dryrun=self.dryrun)
         output = cmd.run()
         if cmd.retcode != 0:
-            logger.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), output)
-        logger.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
+            console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), output)
+        console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
         time.sleep(5)
         self._mount_volume(volume)
 
@@ -175,8 +175,8 @@ class VolumeManager(object):
                           input=password, dryrun=self.dryrun)
         output = cmd.run()
         if cmd.retcode != 0:
-            logger.abort('Attach failed: %s' % volume.volid, output)
-        logger.info('Attach succeeded: %s' % volume.volid)
+            console.abort('Attach failed: %s' % volume.volid, output)
+        console.info('Attach succeeded: %s' % volume.volid)
 
 class VolumeSet(object):
     """

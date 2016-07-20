@@ -9,52 +9,119 @@
 #===============================================================================
 #===============================================================================
 
-import sys, copy
+import sys
+import copy
 from . import listutil
 
-def _display(f, tag, indent, *msgs, **vars):
-    if tag:
-        pre = '%s: ' % tag
-    else:
-        pre = ''
-    if indent > 0:
-        sindent = ' ' * indent
-    else:
-        sindent = ''
-    for msg in listutil.flatten_split_strings('\n', *msgs, **vars):
-        if type(msg) is Exception:
-            f.write('%s%s%s Exception: %s' % (pre, sindent, msg.__class__.__name__, str(msg)))
+"""
+Assorted console input/output functions
+"""
+
+VERBOSE = False
+DEBUG = False
+OUTPUT_STREAM = sys.stdout
+ERROR_STREAM = sys.stderr
+
+
+def set_verbose(verbose):
+    global VERBOSE
+    VERBOSE = verbose
+
+
+def set_debug(debug):
+    global DEBUG
+    DEBUG = debug
+
+
+def set_streams(output_stream, error_stream):
+    global OUTPUT_STREAM, ERROR_STREAM
+    OUTPUT_STREAM = output_stream
+    ERROR_STREAM = error_stream
+
+
+def display_messages(msgs, kwargs={}, error=False, tag=None, level=0):
+    """
+    Low level message display.
+    """
+    f = ERROR_STREAM if error else OUTPUT_STREAM
+    stag = '%s: ' % tag if tag else ''
+    # Special case to allow a string instead of an iterable.
+    try:
+        # Raises TypeError if not string
+        var = msgs + ' '
+        msgs = [msgs]
+    except TypeError:
+        pass
+    # Recursively process message list and sub-lists.
+    for sublevel, msg in listutil.walk_flattened_split_strings('\n', *msgs, **kwargs):
+	sindent = (level + sublevel) * '  '
+        # Handle exceptions
+        if issubclass(msg.__class__, Exception):
+            f.write('%s%s%s Exception: %s\n' % (stag, sindent, msg.__class__.__name__, str(msg)))
         else:
-            f.write('%s%s%s\n' % (pre, sindent, msg))
+            # Handle multi-line strings
+            try:
+                # Test that it's a string (raises TypeError if not).
+                '' + msg
+                # If it is a string slice and dice it by linefeeds.
+                for msg2 in msg.split('\n'):
+                    f.write('%s%s%s\n' % (stag, sindent, msg2))
+            except TypeError:
+                # Recursively display an iterable with indentation added.
+                if hasattr(msg, '__iter__'):
+                    display_messages(msg, kwargs, f=f, tag=tag, level=(level + 1))
+                else:
+                    for msg2 in str(msg).split('\n'):
+                        f.write('%s%s%s\n' % (stag, sindent, msg2))
 
-def info(*msgs, **vars):
-    _display(sys.stdout, None, 0, *msgs, **vars)
 
-def warning(*msgs, **vars):
-    _display(sys.stdout, 'WARNING', 0, *msgs, **vars)
+def info(*msgs, **kwargs):
+    display_messages(msgs, kwargs=kwargs)
 
-def error(*msgs, **vars):
-    _display(sys.stdout, 'ERROR', 0, *msgs, **vars)
 
-def abort(*msgs, **vars):
-    error(*msgs, **vars)
-    sys.stderr.write('ABORT\n')
-    sys.exit(1)
+def is_verbose():
+    return VERBOSE
 
-def header(*msgs, **vars):
+def verbose_info(*msgs, **kwargs):
+    if VERBOSE:
+        display_messages(msgs, kwargs=kwargs, tag='INFO2')
+
+
+def debug(*msgs, **kwargs):
+    if DEBUG:
+        display_messages(msgs, kwargs=kwargs, error=True, tag='DEBUG')
+
+
+def warning(*msgs, **kwargs):
+    display_messages(msgs, kwargs=kwargs, error=True, tag='WARNING')
+
+
+def error(*msgs, **kwargs):
+    display_messages(msgs, kwargs=kwargs, error=True, tag='ERROR')
+
+
+def abort(*msgs, **kwargs):
+    display_messages(msgs, kwargs=kwargs, error=True, tag='ERROR')
+    ERROR_STREAM.write('ABORT\n')
+    sys.exit(255)
+
+
+def header(*msgs, **kwargs):
     ul = '=' * 70
-    _display(sys.stdout, None, 0, '', ul)
-    _display(sys.stdout, None, 1, *msgs, **vars)
-    _display(sys.stdout, None, 0, ul, '')
+    display_messages('', ul)
+    display_messages(level=1, *msgs, **kwargs)
+    display_messages(ul, '')
 
-def pause(*msgs, **vars):
-    _display(sys.stdout, None, 0, '', *msgs, **vars)
+
+def pause(*msgs, **kwargs):
+    display_messages('', *msgs, **kwargs)
     response = '?'
     while response and response not in ('y', 'yes', 'n', 'no'):
         sys.stdout.write('>>> Continue? (Y|n) ')
         response = sys.stdin.readline().strip().lower()
     if response and response[:1] != 'y':
         abort('Quit')
+
 
 def input(prompt):
     sys.stdout.write('>>> %s: ' % prompt)
@@ -65,6 +132,7 @@ def input(prompt):
     except KeyboardInterrupt:
         sys.stderr.write('\n<BREAK>\n')
         raise
+
 
 def menu(fixed_choices,
          message = None,
@@ -125,4 +193,3 @@ def menu(fixed_choices,
             if default is not None:
                 return default
         error('Bad selection')
-

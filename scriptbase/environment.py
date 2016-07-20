@@ -23,7 +23,7 @@
 #===============================================================================
 
 import sys, os, re
-from . import logger
+from . import console
 
 class Environment(object):
     @staticmethod
@@ -36,7 +36,7 @@ class Environment(object):
     def strip_path(name, path, *todel):
         todel = [t for t in todel if t is not None]
         if todel:
-            logger.info('Stripping from path (%s):\n   %s' % (name, '\n   '.join(todel)))
+            console.info('Stripping from path (%s):\n   %s' % (name, '\n   '.join(todel)))
         return ':'.join([dir for dir in path.split(':')
                             if not [item for item in todel if dir.startswith(item)]])
     @staticmethod
@@ -78,7 +78,7 @@ class Environment(object):
         for name in self.vars:
             if name not in os.environ or self.vars[name] != os.environ[name]:
                 if verbose:
-                    logger.info('ENV: %s=%s' % (name, self.vars[name]))
+                    console.info('ENV: %s=%s' % (name, self.vars[name]))
                 os.environ[name] = self.vars[name]
     def diff(self, other):
         tomod = []

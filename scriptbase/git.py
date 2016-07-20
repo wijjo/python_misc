@@ -16,7 +16,7 @@ import os
 import subprocess
 import re
 
-from . import logger
+from . import console
 from . import run
 from . import utility
 
@@ -85,7 +85,7 @@ def get_local_branch():
         if line.startswith('* '):
             branch = line[2:]
     if proc.returncode != 0:
-        logger.abort('You are not in a git workspace folder.')
+        console.abort('You are not in a git workspace folder.')
     return branch
 
 
@@ -125,7 +125,7 @@ def find_branch_root(dir_start=None):
         if os.path.exists(os.path.join(branch_root, '.git')):
             return branch_root
         branch_root = os.path.dirname(branch_root)
-    logger.abort('Failed to find working project root folder.')
+    console.abort('Failed to find working project root folder.')
 
 
 #def delete_branch():
@@ -196,7 +196,7 @@ def remote_branch_exists(url, branch, verbose=False):
     """
     for s in run.pipe_cmd('git', 'ls-remote', '--heads', url, branch, verbose=verbose):
         if verbose:
-            logger.verbose_info(s)
+            console.verbose_info(s)
         if s.split()[-1].split('/')[-1] == branch:
             return True
     return False
@@ -214,20 +214,20 @@ def git_project_root(dir=None, optional=False):
         if save_dir:
             os.chdir(save_dir)
     if not root_dir and not optional:
-        logger.abort('Failed to find git project root folder.')
+        console.abort('Failed to find git project root folder.')
     return root_dir
 
 
 def get_github_root(github_root):
     filetool = utility.FileTool(lstrip=True, rstrip=True)
     if github_root:
-        logger.info('Saving new GitHub root...')
+        console.info('Saving new GitHub root...')
         filetool.save(G.github_root_config, github_root)
     else:
         for line in filetool.readlines(G.github_root_config):
             github_root = line
         if not github_root:
-            logger.abort('Unable to determine the GitHub root - please specify one.')
+            console.abort('Unable to determine the GitHub root - please specify one.')
     return github_root
 
 
@@ -241,11 +241,13 @@ def git_version():
             version = m.group(1)
     return version
 
+
 def is_git_version_newer(min_version):
     version = git_version()
     if version is None:
         return False
     return utility.version_compare(version, min_version) >= 0
+
 
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):
     if ancestor is None:
@@ -259,6 +261,7 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
     if create_remote:
         create_remote_branch(url, branch, dryrun=dryrun, verbose=verbose)
 
+
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
     runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
                         branch=branch)
@@ -267,27 +270,29 @@ def create_remote_branch(url, branch, dryrun=False, verbose=False):
         if url is None:
             url = get_repository_url()
             if url is None:
-                logger.warning("Failed to get repository URL, assuming the branch does not exist.")
+                console.warning("Failed to get repository URL, assuming the branch does not exist.")
             else:
                 remote_exists = remote_branch_exists(url, branch, verbose=verbose)
     if not remote_exists:
-        logger.info(runner.expand('Creating remote branch %(branch)s...'))
+        console.info(runner.expand('Creating remote branch %(branch)s...'))
         runner.shell('git push origin %(branch)s:%(branch)s')
     # Check out branch.
     runner.shell('git checkout %(branch)s')
     # Set up remote tracking.
     if branch != 'master' and not remote_exists:
-        logger.info('Setting local branch to track to remote...')
+        console.info('Setting local branch to track to remote...')
         if is_git_version_newer('1.8'):
             runner.shell('git branch --set-upstream-to origin/%(branch)s')
         else:
             runner.shell('git branch --set-upstream %(branch)s origin/%(branch)s')
+
 
 def get_repository_url():
     url = None
     for line in run.pipe_cmd('git', 'config', '--get', 'remote.origin.url'):
         url = line
     return url
+
 
 def iter_submodules():
     for line in run.pipe_cmd('git', 'submodule', '--quiet', 'foreach', 'echo $name'):

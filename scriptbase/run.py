@@ -5,7 +5,7 @@ import os
 import subprocess
 import tempfile
 
-from . import logger
+from . import console
 
 ### DEPRECATED ###
 # Use command module instead.
@@ -17,7 +17,7 @@ def pipe_cmd(*args, **kwargs):
     verbose = kwargs.get('verbose', False)
     try:
         if verbose:
-            logger.verbose_info(' '.join(args))
+            console.verbose_info(' '.join(args))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         try:
             for line in iter(proc.stdout.readline, ''):
@@ -26,7 +26,7 @@ def pipe_cmd(*args, **kwargs):
             proc.stdout.close()
             proc.wait()
     except Exception as e:
-        logger.warning('Exception running command: %s' % ' '.join(args), e)
+        console.warning('Exception running command: %s' % ' '.join(args), e)
 
 
 def pipe_cmd_one(*args, **kwargs):
@@ -66,7 +66,7 @@ class Command(object):
         try:
             self.proc = subprocess.Popen(args2, **popen_keywords)
         except Exception as e:
-            logger.abort('Error opening command:', [self.cmd_text, e])
+            console.abort('Error opening command:', [self.cmd_text, e])
             self.proc = None
 
     def pipe(self):
@@ -74,20 +74,20 @@ class Command(object):
         Pipe output on the fly to allow iteration.
         """
         if self.dryrun:
-            logger.info('Command: %s' % self.cmd_text)
+            console.info('Command: %s' % self.cmd_text)
             return
         if self.proc is not None:
             try:
                 for line in iter(self.proc.stdout.readline, ''):
                     yield line.rstrip()
             except Exception as e:
-                logger.warning('Error processing command output:', [self.cmd_text, e])
+                console.warning('Error processing command output:', [self.cmd_text, e])
             self.proc.stdout.close()
             if not self.stdin is None:
                 self.stdin.close()
             self.retcode = self.proc.wait()
         else:
-            logger.abort('Attempt to read output after command startup failed:',
+            console.abort('Attempt to read output after command startup failed:',
                          [self.cmd_text])
 
     def run(self, echo=False):
@@ -95,7 +95,7 @@ class Command(object):
         Process the command synchronously and return a list of output lines.
         """
         if self.dryrun:
-            logger.info('Command: %s' % self.cmd_text)
+            console.info('Command: %s' % self.cmd_text)
             return
         lines = [line for line in self.pipe()]
         if lines and echo:
@@ -116,7 +116,7 @@ def run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
             skwargs = ''
         return '%s%s%s' % (tag, sargs, skwargs)
     if cmdargs.verbose:
-        logger.display_messages(arg_string(), tag='TRACE')
+        console.display_messages(arg_string(), tag='TRACE')
     elif cmdargs.pause:
         sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % arg_string())
         sys.stdin.readline()
@@ -127,14 +127,14 @@ def run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
             errmsg = checker(ret, *args, **kwargs)
             if errmsg is not None:
                 if abort:
-                    logger.abort(errmsg, arg_string())
+                    console.abort(errmsg, arg_string())
                 else:
-                    logger.error(errmsg, arg_string())
+                    console.error(errmsg, arg_string())
     except Exception as e:
         if abort:
-            logger.abort(e, arg_string())
+            console.abort(e, arg_string())
         else:
-            logger.error(e, arg_string())
+            console.error(e, arg_string())
     return ret
 
 
@@ -184,4 +184,4 @@ class Runner:
         try:
             return os.path.expanduser(os.path.expandvars(s)) % self.kwargs
         except ValueError as e:
-            logger.abort(e, s)
+            console.abort(e, s)

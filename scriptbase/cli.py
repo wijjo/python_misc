@@ -20,7 +20,7 @@ import inspect
 
 from . import run
 from . import utility
-from . import logger
+from . import console
 
 try:
     import argparse
@@ -205,7 +205,7 @@ class Verb(object):
             elif inspect.isfunction(parent) and parent in Verb.verbs_by_function_ref:
                 Verb.verbs_by_function_ref[parent].add_verb(self)
             else:
-                logger.abort('Parent is not a known command function.')
+                console.abort('Parent is not a known command function.')
 
     def configure_parser(self, parser):
         self._update()
@@ -363,7 +363,7 @@ class Main(object):
 
     def __call__(self, function):
         if Main.instance:
-            logger.abort('Only one @cli.Main() is allowed.')
+            console.abort('Only one @cli.Main() is allowed.')
         self.function = function
         Main.instance = self
 
@@ -376,7 +376,7 @@ def main(command_line=sys.argv[1:]):
     """
 #===============================================================================
     if not Main.instance:
-        logger.abort('No @cli.Main() was found.')
+        console.abort('No @cli.Main() was found.')
     add_arg_specs = copy.copy(list(Main.instance.arg_specs))
     if Main.instance.support_verbose:
         add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))

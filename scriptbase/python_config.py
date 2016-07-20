@@ -14,7 +14,7 @@
 
 import os
 import copy
-from . import logger
+from . import console
 from . import listutil
 
 
@@ -69,7 +69,7 @@ class Config(object):
         comment = '#' if commented_out else ''
         try:
             if os.path.exists(self.file_name):
-                logger.abort('Configuration file already exists: %s' % self.file_name)
+                console.abort('Configuration file already exists: %s' % self.file_name)
             with open(self.file_name, 'w') as f:
                 f.write('''\
 # Un-comment and edit below to change default configuration settings.
@@ -80,9 +80,9 @@ class Config(object):
                     if spec.desc:
                         f.write('# %s\n' % spec.desc)
                     f.write('%s%s\n' % (comment, spec.name_value_string()))
-            logger.info('Configuration file saved: %s' % self.file_name)
+            console.info('Configuration file saved: %s' % self.file_name)
         except (IOError, OSError) as e:
-            logger.abort('Unable to save configuration file: %s' % self.file_name, e)
+            console.abort('Unable to save configuration file: %s' % self.file_name, e)
 
     def load_for_paths(self, *paths):
         config_dirs = []
@@ -94,20 +94,20 @@ class Config(object):
                     config_dirs.append(config_dir)
         for config_dir in config_dirs:
             self._load_directory_config(config_dir)
-        if logger.is_verbose():
+        if console.is_verbose():
             self.dump()
 
     def dump(self):
-        logger.verbose_info('=== Configuration ===')
+        console.verbose_info('=== Configuration ===')
         for spec in self.specs:
-            logger.verbose_info('%s=%s' % (spec.name, str(self.data[spec.name])))
+            console.verbose_info('%s=%s' % (spec.name, str(self.data[spec.name])))
 
     def _load_directory_config(self, directory):
         path = os.path.expanduser(os.path.expandvars(os.path.join(directory, self.file_name)))
         if not os.path.isfile(path):
             return
         try:
-            logger.verbose_info('Reading configuration file: %s' % path)
+            console.verbose_info('Reading configuration file: %s' % path)
             # Grab configuration data and ignore other configuration file
             # symbols from local Python code.
             globals_tmp = {}
@@ -119,4 +119,4 @@ class Config(object):
                 if spec.name in locals_tmp:
                     self.data[spec.name] = locals_tmp[spec.name]
         except Exception as e:
-            logger.abort('Error reading configuration file: %s' % path, e)
+            console.abort('Error reading configuration file: %s' % path, e)

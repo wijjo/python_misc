@@ -36,10 +36,12 @@ def _format(sin, **vars):
                 vars[e] = '???'
     return sout
 
-def _flatten(split_on, *items, **vars):
-    '''Flatten and yield individual items from a potentially nested list.
-       If split_on is specified splits all strings on it.
-       If vars has dictionary entries, formats all strings with it.'''
+def _flatten(split_on, items, vars, level):
+    '''
+    Flatten and yield level/item pairs from a potentially nested list.
+    If split_on is specified splits all strings on it.
+    If vars has dictionary entries, formats all strings with it.
+    '''
     for item in items:
         if item is not None:
             try:
@@ -47,28 +49,32 @@ def _flatten(split_on, *items, **vars):
                 # It's a string
                 if split_on:
                     for substring in item.split(split_on):
-                        yield _format(substring, **vars)
+                        yield level, _format(substring, **vars)
                 else:
-                    yield _format(item, **vars)
+                    yield level, _format(item, **vars)
             except TypeError:
                 try:
                     test_iter = iter(item)
                     # Use recursion in case it's nested further.
                     for subitem in item:
-                        for subsubitem in _flatten(split_on, subitem, **vars):
-                            yield subsubitem
+                        for sublevel, subsubitem in _flatten(split_on, [subitem], vars, level+1):
+                            yield sublevel, subsubitem
                 except TypeError:
                     # It's a non-iterable non-string
-                    yield item
+                    yield level, item
 
 def flatten(*items, **vars):
-    for item in _flatten(None, *items, **vars):
+    for level, item in _flatten(None, items, vars, 0):
         yield item
 
 def flatten_strings(*items, **vars):
-    for item in _flatten(None, *items, **vars):
+    for level, item in _flatten(None, items, vars, 0):
         yield str(item)
 
 def flatten_split_strings(split_on, *items, **vars):
-    for item in _flatten(split_on, *items, **vars):
+    for level, item in _flatten(split_on, items, vars, 0):
         yield str(item)
+
+def walk_flattened_split_strings(split_on, *items, **vars):
+    for level, item in _flatten(split_on, items, vars, 0):
+        yield level, str(item)

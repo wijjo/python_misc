@@ -18,7 +18,7 @@ import shutil
 import re
 import inspect
 
-from . import logger
+from . import console
 from . import run
 
 
@@ -94,11 +94,11 @@ class FileTool(object):
                             line = line.rstrip()
                         yield line
                 except (IOError, OSError) as e:
-                    logger.abort('Unable to read from "%s".' % path, e)
+                    console.abort('Unable to read from "%s".' % path, e)
             finally:
                 f.close()
         except (IOError, OSError) as e:
-            logger.abort('Unable to open "%s".' % path, e)
+            console.abort('Unable to open "%s".' % path, e)
 
     def save(self, path, *sources):
         """
@@ -110,7 +110,7 @@ class FileTool(object):
                     f = open(path, 'w')
                     self._write(f, sources)
                 except (IOError, OSError) as e:
-                    logger.abort('Unable to write to "%s".' % path, e)
+                    console.abort('Unable to write to "%s".' % path, e)
             finally:
                 f.close()
 
@@ -120,13 +120,13 @@ class FileTool(object):
     def copy(self, source, target, optional=False, update=False):
         if source and os.path.isfile(source):
             if update and os.path.isfile(target) and not self.newer(source, target):
-                logger.info('Skip copying older "%s" to "%s"...' % (source, target))
+                console.info('Skip copying older "%s" to "%s"...' % (source, target))
             else:
-                logger.info('Copying "%s" to "%s"...' % (source, target))
+                console.info('Copying "%s" to "%s"...' % (source, target))
                 if not self.dryrun:
                     shutil.copy(source, target)
         elif not optional:
-            logger.abort('Source file for copy "%s" does not exist.' % source)
+            console.abort('Source file for copy "%s" does not exist.' % source)
 
     ### Private.
 
@@ -203,7 +203,7 @@ def get_keywords(*names, **kwargs):
         else:
             bad.append(keyword)
     if bad:
-        logger.error('%s was called with %d bad keyword %s:'
+        console.error('%s was called with %d bad keyword %s:'
                             % (caller_name(), len(bad), pluralize('argument', len(bad))),
                         ['Caller: %s' % caller_name(3)],
                         ['Bad %s: %s' % (pluralize('keyword', len(bad)), ' '.join(bad))])
@@ -233,50 +233,50 @@ def mounts_check(*mountpoints):
 def ssh_tunnel_connect(remote_host, remote_port, local_port, ssh_port=22, dryrun=False):
     lpid = get_listener(local_port)
     if lpid is None:
-        logger.info('Connecting tunnel from %(remote_host)s:%(remote_port)d '
-                    'to localhost:%(local_port)d...' % locals())
+        console.info('Connecting tunnel from %(remote_host)s:%(remote_port)d '
+                     'to localhost:%(local_port)d...' % locals())
         autossh_cmd = ('autossh -M 0 -f -N -o '
                        '"ServerAliveInterval 60" -o "ServerAliveCountMax 3" '
                        '-p %(ssh_port)d '
                        '-L %(local_port)d:localhost:%(remote_port)d '
                        '%(remote_host)s' % locals())
         if dryrun:
-            logger.info(autossh_cmd)
+            console.info(autossh_cmd)
         else:
             if os.system(autossh_cmd) == 0:
-                logger.info('Tunnel from %(remote_host)s:%(remote_port)d '
-                            'to localhost:%(local_port)d is active.' % locals())
+                console.info('Tunnel from %(remote_host)s:%(remote_port)d '
+                             'to localhost:%(local_port)d is active.' % locals())
             else:
-                logger.abort('Failed to connect tunnel from %(remote_host)s:%(remote_port)d '
-                             'to localhost:%(local_port)d.' % locals())
+                console.abort('Failed to connect tunnel from %(remote_host)s:%(remote_port)d '
+                              'to localhost:%(local_port)d.' % locals())
     else:
-        logger.info('Port %(local_port)d is already handled by process %(lpid)d.' % locals())
+        console.info('Port %(local_port)d is already handled by process %(lpid)d.' % locals())
 
 
 def ssh_tunnel_disconnect(local_port, dryrun=False):
     lpid = get_listener(local_port)
     if lpid:
-        logger.info('Killing port %(local_port)d listener process %(lpid)d...' % locals())
+        console.info('Killing port %(local_port)d listener process %(lpid)d...' % locals())
         kill_cmd = 'kill %(lpid)d' % locals()
         if dryrun:
-            logger.info(kill_cmd)
+            console.info(kill_cmd)
         else:
             if os.system(kill_cmd) == 0:
-                logger.info('Port listener process %(lpid)d was killed and '
-                            'port %(local_port)d was disconnected.' % locals())
+                console.info('Port listener process %(lpid)d was killed and '
+                             'port %(local_port)d was disconnected.' % locals())
             else:
-                logger.abort('Failed to kill listener process %(lpid)d.' % locals())
+                console.abort('Failed to kill listener process %(lpid)d.' % locals())
     else:
-        logger.info('Port %(port)d does not hav an active listener.' % locals())
+        console.info('Port %(port)d does not hav an active listener.' % locals())
 
 
 def sshfs_mount(mountpoint, remote_host, ssh_port=22, dryrun=False):
     if mounts_check(mountpoint):
-        logger.info('%(mountpoint)s was already mounted.')
+        console.info('%(mountpoint)s was already mounted.')
     else:
         if not os.path.exists(mountpoint):
             if dryrun:
-                logger.info('mkdir %(mountpoint)s' % locals())
+                console.info('mkdir %(mountpoint)s' % locals())
             else:
                 os.mkdir(mountpoint)
         sshfs_cmd = ('sshfs -p %(ssh_port)d '
@@ -284,12 +284,12 @@ def sshfs_mount(mountpoint, remote_host, ssh_port=22, dryrun=False):
                      '-o defer_permissions '
                      '%(remote_host)s:/ %(mountpoint)s' % locals())
         if dryrun:
-            logger.info(sshfs_cmd)
+            console.info(sshfs_cmd)
         else:
             if os.system(sshfs_cmd) == 0:
-                logger.info('%(mountpoint)s is mounted.' % locals())
+                console.info('%(mountpoint)s is mounted.' % locals())
             else:
-                logger.abort('%(mountpoint)s failed to mount.' % locals())
+                console.abort('%(mountpoint)s failed to mount.' % locals())
 
 
 def run_applescript(*lines):
@@ -317,9 +317,9 @@ def choose(prompt, *choices):
     choice_list = []
     for choice in choices:
         if not choice:
-            logger.abort('Empty choice passed to choose().')
+            console.abort('Empty choice passed to choose().')
         if choice[0] in letters:
-            logger.abort('Non-unique choices %s passed to choose().' % str(choices))
+            console.abort('Non-unique choices %s passed to choose().' % str(choices))
         letters.add(choice[0])
         choice_list.append('[%s]%s' % (choice[0], choice[1:]))
     while True:
@@ -339,9 +339,9 @@ def prompt_re(msg, re, default):
                 if not s:
                     return default
                 return s
-            logger.error('bad input - try again')
+            console.error('bad input - try again')
         except KeyboardInterrupt:
-            logger.abort('', 'Keyboard interrupt')
+            console.abort('', 'Keyboard interrupt')
 
 
 def prompt_yes_no(msg, default=False):
@@ -390,7 +390,7 @@ class Properties(object):
         Load properties from a property file.
         """
         if os.path.isfile(path):
-            logger.info('Loading property file "%s"...' % path)
+            console.info('Loading property file "%s"...' % path)
             for line in self._filetool.readlines(path):
                 if not line.startswith('#'):
                     try:
@@ -400,16 +400,16 @@ class Properties(object):
                             value = value[1:-1]
                         self._p[name] = value
                     except ValueError:
-                        logger.warning('Ignoring bad line in "%s".' % path)
+                        console.warning('Ignoring bad line in "%s".' % path)
         elif not optional:
-            logger.abort('Missing property file "%s".' % path)
+            console.abort('Missing property file "%s".' % path)
 
     def save(self, path):
         """
         Save properties in file.
         """
         lines = []
-        logger.info('Saving properties to file "%s"...' % path)
+        console.info('Saving properties to file "%s"...' % path)
         for key in sorted(self._p.keys()):
             lines.append('%s="%s"' % (key, self._p[key]))
         self._filetool.save(path, *lines)
