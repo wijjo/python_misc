@@ -141,6 +141,8 @@ class Command(object):
         self.output_lines = []
         self.capture_on_exit = True
         self.input_source = None
+        self.dryrun = False
+        self.in_with_block = False
         self.bufsize=1
         self.rc = None
 
@@ -148,6 +150,7 @@ class Command(object):
         bufsize=None,
         capture_on_exit=None,
         input_source=None,
+        dryrun=None,
     ):
         """
         Set options immediately after constructions.
@@ -165,16 +168,19 @@ class Command(object):
             self.capture_on_exit = capture_on_exit
         if input_source is not None:
             self.input_source = input_source
-        self.input_source = input_source
+        if dryrun is not None:
+            self.dryrun = dryrun
         return self
 
     def __enter__(self):
-        self.p = subprocess.Popen(
-                    self.args,
-                    bufsize=self.bufsize,
-                    stdin=self.input_source,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT)
+        self.in_with_block = True
+        if not self.dryrun:
+            self.p = subprocess.Popen(
+                        self.args,
+                        bufsize=self.bufsize,
+                        stdin=self.input_source,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT)
         if self.input_source:
             self.input_source.close()
         return self
@@ -186,7 +192,7 @@ class Command(object):
             self.rc = self.p.wait()
 
     def _check_in_with_block(self):
-        if self.p is None:
+        if not self.in_with_block:
             raise Command.NotInWithBlock()
 
     def _check_not_running(self):
@@ -197,13 +203,14 @@ class Command(object):
         """
         Iterator runs the command and yields a line at a time.
         """
-        self._check_in_with_block()
-        self.capture_on_exit = False
-        # Work around a Python 2 readline issue (https://bugs.python.org/issue3907).
-        if not self.p.stdout.closed:
-            with self.p.stdout:
-                for line in iter(self.p.stdout.readline, b''):
-                    yield line.rstrip()
+        if not self.dryrun:
+            self._check_in_with_block()
+            self.capture_on_exit = False
+            # Work around a Python 2 readline issue (https://bugs.python.org/issue3907).
+            if not self.p.stdout.closed:
+                with self.p.stdout:
+                    for line in iter(self.p.stdout.readline, b''):
+                        yield line.rstrip()
 
     def run(self):
         """
@@ -267,3 +274,85 @@ class Command(object):
                 input_source.write(str.encode(os.linesep))
         input_source.seek(0)
         return input_source
+
+
+def _run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
+    def arg_string():
+        sargs = str(args)
+        if sargs[-2] == ',':
+            sargs = '%s)' % sargs[:-2]
+        if kwargs:
+            skwargs = ' %s' % str(kwargs)
+        else:
+            skwargs = ''
+        return '%s%s%s' % (tag, sargs, skwargs)
+    if cmdargs.verbose:
+        console.display_messages(arg_string(), tag='TRACE')
+    elif cmdargs.pause:
+        sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % arg_string())
+        sys.stdin.readline()
+    ret = -1
+    try:
+        ret = func(*args, **kwargs)
+        if checker is not None:
+            errmsg = checker(ret, *args, **kwargs)
+            if errmsg is not None:
+                if abort:
+                    console.abort(errmsg, arg_string())
+                else:
+                    console.error(errmsg, arg_string())
+    except Exception as e:
+        if abort:
+            console.abort(e, arg_string())
+        else:
+            console.error(e, arg_string())
+    return ret
+
+
+class RunnerCommandArguments(dict):
+    def __init__(self, **kwargs):
+        dict.__init__(self, **kwargs)
+    def __getattr__(self, name):
+        return self.get(name, None)
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
+class Runner:
+    def __init__(self, cmdargs, **kwargs):
+        self.cmdargs = cmdargs
+        self.kwargs = kwargs
+    def update(self, **kwargs):
+        for k in kwargs:
+            self.kwargs[k] = kwargs[k]
+    def shell(self, cmdline, abort = True):
+        def checker(retcode, cmdline):
+            if retcode != 0:
+                return 'Command failed with return code %d: %s' % (retcode, cmdline)
+        cmdlinex = self.expand(cmdline)
+        if self.cmdargs.dryrun:
+            sys.stdout.write('%s\n' % cmdlinex)
+            return 0
+        return _run_function('shell', checker, self.cmdargs, os.system, abort, cmdlinex)
+    def chdir(self, dir):
+        dirx = self.expand(dir)
+        if self.cmdargs.dryrun:
+            sys.stdout.write('cd "%s"\n' % dirx)
+        else:
+            _run_function('chdir', None, self.cmdargs, os.chdir, True, dirx)
+    def check_directory(self, path, exists):
+        pathx = self.expand(path)
+        if self.cmdargs.dryrun:
+            sys.stdout.write('test -d "%s" || exit 1\n' % pathx)
+        else:
+            def checker(actual_exists, path):
+                if exists and not actual_exists:
+                    return 'Directory "%s" does not exist' % path
+                if not exists and actual_exists:
+                    return 'Directory "%s" already exists' % path
+            _run_function('check_directory', checker, self.cmdargs, os.path.exists, True, pathx)
+    def expand(self, s):
+        try:
+            return os.path.expanduser(os.path.expandvars(s)) % self.kwargs
+        except ValueError as e:
+            console.abort(e, s)

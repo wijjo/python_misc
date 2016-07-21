@@ -54,7 +54,7 @@ def display_messages(msgs, kwargs={}, error=False, tag=None, level=0):
         pass
     # Recursively process message list and sub-lists.
     for sublevel, msg in listutil.walk_flattened_split_strings('\n', *msgs, **kwargs):
-	sindent = (level + sublevel) * '  '
+        sindent = (level + sublevel) * '  '
         # Handle exceptions
         if issubclass(msg.__class__, Exception):
             f.write('%s%s%s Exception: %s\n' % (stag, sindent, msg.__class__.__name__, str(msg)))

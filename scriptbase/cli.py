@@ -18,7 +18,7 @@ import os
 import copy
 import inspect
 
-from . import run
+from . import command
 from . import utility
 from . import console
 
@@ -386,7 +386,7 @@ def main(command_line=sys.argv[1:]):
         add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
     parser = Verb.get_parser(Main.instance.description, add_arg_specs)
     cmdargs = parser.parse_args(args=command_line)
-    runner = run.Runner(cmdargs)
+    runner = command.Runner(cmdargs)
     try:
         # Invoke main function (frequently does little or nothing).
         Main.instance.function(runner)

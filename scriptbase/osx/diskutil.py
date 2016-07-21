@@ -4,21 +4,22 @@
 
 import os
 import time
-from .. import run
+from .. import command
 from .. import console
 import plistlib
 
 
-class DiskutilCommand(run.Command):
+class DiskutilCommand(command.Command):
     """
     Diskutil Command object for regular commands.
     """
 
-    def __init__(self, verb, *args, **kwargs):
+    def __init__(self, verb, args, dryrun=False):
         """
         Constructor takes a verb and arguments and prepends ['diskutil'].
         """
-        run.Command.__init__(self, 'diskutil', verb, *args, **kwargs)
+        command.Command.__init__(self, 'diskutil', verb, *args)
+        self.options(dryrun=dryrun)
 
 
 class CoreStorageCommand(DiskutilCommand):
@@ -26,12 +27,12 @@ class CoreStorageCommand(DiskutilCommand):
     Diskutil Command object for corestorage commands.
     """
 
-    def __init__(self, verb, *args, **kwargs):
+    def __init__(self, verb, args, dryrun=False):
         """
         Constructor takes a verb and arguments and prepends ['diskutil',
         'corestorage'].
         """
-        DiskutilCommand.__init__(self, 'coreStorage', verb, *args, **kwargs)
+        DiskutilCommand.__init__(self, 'coreStorage', verb, args, dryrun=dryrun)
 
 
 class PasswordProvider(object):
@@ -77,8 +78,9 @@ class VolumeManager(object):
         self.dryrun = dryrun
 
     def get_complete_volume_set(self):
-        cmd = CoreStorageCommand('list', '-plist')
-        plist_text = '\n'.join(cmd.run())
+        with CoreStorageCommand('list', '-plist') as cmd:
+            pass
+        plist_text = '\n'.join(cmd.output_lines)
         plist = plistlib.readPlistFromString(plist_text)
         volumes = []
         lvm_groups = plist['CoreStorageLogicalVolumeGroups']
@@ -118,25 +120,26 @@ class VolumeManager(object):
             blockcount = 0
             blocksize = 0
             status = None
-            cmd = run.Command('hdiutil', 'info')
-            for line in cmd.run():
-                fields = line.split(None, 2)
-                if status is None:
-                    if fields[0] == 'image-path':
-                        if fields[2] == volid:
-                            status = 'Mounted'
-                else:
-                    if fields[0] == 'image-path':
-                        break
-                    if fields[0] == 'blockcount':
-                        blockcount = int(fields[2])
-                    if fields[0] == 'blocksize':
-                        blocksize = int(fields[2])
+            with command.Command('hdiutil', 'info') as cmd:
+                for line in cmd:
+                    fields = line.split(None, 2)
+                    if status is None:
+                        if fields[0] == 'image-path':
+                            if fields[2] == volid:
+                                status = 'Mounted'
+                    else:
+                        if fields[0] == 'image-path':
+                            break
+                        if fields[0] == 'blockcount':
+                            blockcount = int(fields[2])
+                        if fields[0] == 'blocksize':
+                            blocksize = int(fields[2])
             return Volume(volid, name, blockcount * blocksize, status)
         else:
-            cmd = CoreStorageCommand('information', '-plist', volid)
-            plist_text = '\n'.join(cmd.run())
-            if cmd.retcode != 0:
+            with CoreStorageCommand('information', '-plist', volid) as cmd:
+                pass
+            plist_text = '\n'.join(cmd.output_lines)
+            if cmd.rc != 0:
                 return Volume(volid, None, 0, None)
             plist = plistlib.readPlistFromString(plist_text)
             return Volume(
@@ -154,28 +157,26 @@ class VolumeManager(object):
         return VolumeSet(volumes, password_provider=password_provider)
 
     def _mount_volume(self, volume):
-        cmd = DiskutilCommand('mount', volume.volid, dryrun=self.dryrun)
-        output = cmd.run()
-        if cmd.retcode != 0:
-            console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), output)
+        with DiskutilCommand('mount', volume.volid, dryrun=self.dryrun) as cmd:
+            pass
+        if cmd.rc != 0:
+            console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
         console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
     def _unlock_volume(self, volume, password):
-        cmd = CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password,
-                                 dryrun=self.dryrun)
-        output = cmd.run()
-        if cmd.retcode != 0:
-            console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), output)
+        with CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password,
+                               dryrun=self.dryrun) as cmd:
+        if cmd.rc != 0:
+            console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
         console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
         time.sleep(5)
         self._mount_volume(volume)
 
     def _mount_image(self, volume, password):
-        cmd = run.Command('hdiutil', 'attach', volume.volid, '-stdinpass',
-                          input=password, dryrun=self.dryrun)
-        output = cmd.run()
-        if cmd.retcode != 0:
-            console.abort('Attach failed: %s' % volume.volid, output)
+        with command.Command('hdiutil', 'attach', volume.volid, '-stdinpass',
+                             input=password, dryrun=self.dryrun) as cmd:
+        if cmd.rc != 0:
+            console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
         console.info('Attach succeeded: %s' % volume.volid)
 
 class VolumeSet(object):

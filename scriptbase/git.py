@@ -17,7 +17,7 @@ import subprocess
 import re
 
 from . import console
-from . import run
+from . import command
 from . import utility
 
 
@@ -165,15 +165,17 @@ def iter_changes(submodules=False):
             modified = 0.0
         return FileStatus(flag, path, path2, modified)
     status_cmd_args = ('git', 'status', '--porcelain', '--ignore-submodules')
-    for s in run.pipe_cmd(*status_cmd_args):
-        yield _get_status(s, None)
+    with command.Command(*status_cmd_args) as cmd:
+        for s in cmd:
+            yield _get_status(s, None)
     if submodules:
         submodule = None
-        for s in run.pipe_cmd('git', 'submodule', 'foreach', ' '.join(status_cmd_args)):
-            if s.startswith('Entering'):
-                submodule = s[10:-1]
-            else:
-                yield _get_status(s, submodule)
+        with command.Command('git', 'submodule', 'foreach', ' '.join(status_cmd_args)) as cmd:
+            for s in cmd:
+                if s.startswith('Entering'):
+                    submodule = s[10:-1]
+                else:
+                    yield _get_status(s, submodule)
 
 
 def get_changes():
@@ -194,11 +196,15 @@ def remote_branch_exists(url, branch, verbose=False):
     """
     Returns True if the remote branch name exists.
     """
-    for s in run.pipe_cmd('git', 'ls-remote', '--heads', url, branch, verbose=verbose):
-        if verbose:
-            console.verbose_info(s)
-        if s.split()[-1].split('/')[-1] == branch:
-            return True
+    args = ['git', 'ls-remote', '--heads', url, branch]
+    if verbose:
+        console.verbose_info(' '.join(args))
+    with command.Command(*args) as cmd:
+        for s in cmd:
+            if verbose:
+                console.verbose_info(s)
+            if s.split()[-1].split('/')[-1] == branch:
+                return True
     return False
 
 
@@ -209,7 +215,8 @@ def git_project_root(dir=None, optional=False):
     else:
         save_dir = None
     try:
-        root_dir = run.pipe_cmd_one('git', 'rev-parse', '--show-toplevel')
+        with command.Command('git', 'rev-parse', '--show-toplevel') as cmd:
+            root_dir = cmd.next()
     finally:
         if save_dir:
             os.chdir(save_dir)
@@ -233,12 +240,13 @@ def get_github_root(github_root):
 
 def git_version():
     version = None
-    for line in run.pipe_cmd('git', '--version'):
-        if version is None:
-            m = G.re_version.search(line)
-            if not m:
-                utility.abort('Failed to parse git version: %s', line.strip())
-            version = m.group(1)
+    with command.Command('git', '--version') as cmd:
+        for line in cmd:
+            if version is None:
+                m = G.re_version.search(line)
+                if not m:
+                    utility.abort('Failed to parse git version: %s', line.strip())
+                version = m.group(1)
     return version
 
 
@@ -252,8 +260,8 @@ def is_git_version_newer(min_version):
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):
     if ancestor is None:
         ancestor = 'master'
-    runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
-                        branch=branch, ancestor=ancestor)
+    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
+                            branch=branch, ancestor=ancestor)
     # Create local branch.
     if branch != 'master':
         runner.shell('git branch %(branch)s origin/%(ancestor)s')
@@ -263,8 +271,8 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
 
 
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
-    runner = run.Runner(run.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
-                        branch=branch)
+    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
+                            branch=branch)
     remote_exists = False
     if not dryrun:
         if url is None:
@@ -288,12 +296,12 @@ def create_remote_branch(url, branch, dryrun=False, verbose=False):
 
 
 def get_repository_url():
-    url = None
-    for line in run.pipe_cmd('git', 'config', '--get', 'remote.origin.url'):
-        url = line
-    return url
+    with command.Command('git', 'config', '--get', 'remote.origin.url') as cmd:
+        for line in cmd:
+            return line
 
 
 def iter_submodules():
-    for line in run.pipe_cmd('git', 'submodule', '--quiet', 'foreach', 'echo $name'):
-        yield line.strip()
+    with command.Command('git', 'submodule', '--quiet', 'foreach', 'echo $name') as cmd:
+        for line in cmd:
+            yield line.strip()

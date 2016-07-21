@@ -19,7 +19,7 @@ import re
 import inspect
 
 from . import console
-from . import run
+from . import command
 
 
 class G:
@@ -211,15 +211,17 @@ def get_keywords(*names, **kwargs):
 
 
 def get_listener(port):
-    for line in run.pipe_cmd('lsof', '-i:%d' % port, '-sTCP:LISTEN', '-t'):
-        return int(line)
+    with command.Command('lsof', '-i:%d' % port, '-sTCP:LISTEN', '-t') as cmd:
+        for line in cmd:
+            return int(line)
 
 
 def iter_mounted_volumes():
-    for line in run.pipe_cmd('mount'):
-        m = G.re_mount.match(line)
-        if m:
-            yield m.group(2), m.group(1)
+    with command.Command('mount') as cmd:
+        for line in cmd:
+            m = G.re_mount.match(line)
+            if m:
+                yield m.group(2), m.group(1)
 
 
 def mounts_check(*mountpoints):
@@ -298,7 +300,7 @@ def run_applescript(*lines):
         for subline in line.split('\n'):
             if subline.strip():
                 args.extend(['-e', subline.strip()])
-    cmd = run.Command(*args)
+    cmd = command.Command(*args)
     return cmd.run()
 
 
