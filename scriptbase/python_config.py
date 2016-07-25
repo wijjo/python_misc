@@ -15,7 +15,7 @@
 import os
 import copy
 from . import console
-from . import listutil
+from . import flatten
 
 
 #===============================================================================
@@ -86,7 +86,7 @@ class Config(object):
 
     def load_for_paths(self, *paths):
         config_dirs = []
-        for path in listutil.flatten(paths):
+        for path in flatten.flatten_strings(paths):
             if path:
                 config_dir = os.path.realpath(
                     path if os.path.isdir(path) else os.path.dirname(path))

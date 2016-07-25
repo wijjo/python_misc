@@ -1,9 +1,52 @@
 #!/usr/bin/env bash
-set -e
 cd $(dirname $(dirname "${BASH_SOURCE[0]}"))
-for m in "$@"; do
-    echo ":::Python2:::"
-    python2 -m test.test_$m
-    echo ":::Python3:::"
-    python3 -m test.test_$m
+
+usage()
+{
+    echo "
+Usage: $(basename $0) [-2|-3] [module ...]
+    -2  run python version 2 only
+    -3  run python version 3 only
+" 1>&2
+    exit 255
+}
+
+all_tests()
+{
+    local t
+    for t in test/test*.py; do
+        basename "${t:10}" .py
+    done
+}
+
+run_tests()
+{
+    local python_versions="$1"
+    test -z "$python_versions" && python_versions="2 3"
+    shift
+    local module_names="$*"
+    test -z "$module_names" && module_names="$(all_tests)"
+    local python_version
+    for python_version in $python_versions; do
+        echo -e "\n===== Python $python_version ====="
+        local module_name
+        for module_name in $module_names; do
+            echo -e "\n--- testing: $module_name ---"
+            python$python_version -m test.test_$module_name
+        done
+    done
+}
+
+python_versions="2 3"
+while getopts "23h" opt; do
+    case $opt in
+        2) python_versions=2;;
+        3) python_versions=3;;
+        h) usage;;
+        *) usage;;
+    esac
 done
+shift $((OPTIND-1))
+
+set -e
+run_tests "$python_versions" "$*"

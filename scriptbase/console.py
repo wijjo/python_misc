@@ -10,8 +10,9 @@
 #===============================================================================
 
 import sys
+import os
 import copy
-from . import listutil
+from . import flatten
 
 """
 Assorted console input/output functions
@@ -21,6 +22,7 @@ VERBOSE = False
 DEBUG = False
 OUTPUT_STREAM = sys.stdout
 ERROR_STREAM = sys.stderr
+INDENT_STRING = '  '
 
 
 def set_verbose(verbose):
@@ -28,9 +30,22 @@ def set_verbose(verbose):
     VERBOSE = verbose
 
 
+def is_verbose():
+    return VERBOSE
+
+
 def set_debug(debug):
     global DEBUG
     DEBUG = debug
+
+
+def is_debug():
+    return DEBUG
+
+
+def set_indentation(indent_string):
+    global INDENT_STRING
+    INDENT_STRING = indent_string
 
 
 def set_streams(output_stream, error_stream):
@@ -53,34 +68,16 @@ def display_messages(msgs, kwargs={}, error=False, tag=None, level=0):
     except TypeError:
         pass
     # Recursively process message list and sub-lists.
-    for sublevel, msg in listutil.walk_flattened_split_strings('\n', *msgs, **kwargs):
-        sindent = (level + sublevel) * '  '
-        # Handle exceptions
+    for sublevel, msg in flatten.flatten(msgs, split_strings_on=os.linesep, vars=kwargs):
         if issubclass(msg.__class__, Exception):
-            f.write('%s%s%s Exception: %s\n' % (stag, sindent, msg.__class__.__name__, str(msg)))
-        else:
-            # Handle multi-line strings
-            try:
-                # Test that it's a string (raises TypeError if not).
-                '' + msg
-                # If it is a string slice and dice it by linefeeds.
-                for msg2 in msg.split('\n'):
-                    f.write('%s%s%s\n' % (stag, sindent, msg2))
-            except TypeError:
-                # Recursively display an iterable with indentation added.
-                if hasattr(msg, '__iter__'):
-                    display_messages(msg, kwargs, f=f, tag=tag, level=(level + 1))
-                else:
-                    for msg2 in str(msg).split('\n'):
-                        f.write('%s%s%s\n' % (stag, sindent, msg2))
+            msg = 'Exception[%s]: %s' % (msg.__class__.__name__, str(msg))
+        sindent = (level + sublevel) * INDENT_STRING
+        f.write('%s%s%s%s' % (stag, sindent, str(msg), os.linesep))
 
 
 def info(*msgs, **kwargs):
     display_messages(msgs, kwargs=kwargs)
 
-
-def is_verbose():
-    return VERBOSE
 
 def verbose_info(*msgs, **kwargs):
     if VERBOSE:
@@ -102,7 +99,7 @@ def error(*msgs, **kwargs):
 
 def abort(*msgs, **kwargs):
     display_messages(msgs, kwargs=kwargs, error=True, tag='ERROR')
-    ERROR_STREAM.write('ABORT\n')
+    ERROR_STREAM.write('ABORT%s' % os.linesep)
     sys.exit(255)
 
 
@@ -130,7 +127,9 @@ def input(prompt):
     except ValueError:
         pass
     except KeyboardInterrupt:
-        sys.stderr.write('\n<BREAK>\n')
+        sys.stderr.write(os.linesep)
+        sys.stderr.write('<BREAK>')
+        sys.stderr.write(os.linesep)
         raise
 
 
@@ -142,7 +141,8 @@ def menu(fixed_choices,
          prompt  = 'Choice'):
     if not message:
         message = 'Menu'
-    print('\n::: %s :::' % message)
+    print('')
+    print('::: %s :::' % message)
     choices = copy.copy(fixed_choices)
     imax = len(choices)
     iother = None
