@@ -16,131 +16,220 @@
 #===============================================================================
 # environment
 #
-# environment variable utilities
+# environment variable utility classes
 #
 # 12/16/10 - Steve Cooper - author
 #===============================================================================
 #===============================================================================
 
-import sys, os, re
-from . import console
+import sys
+import os
+import re
+import copy
+
 
 class Environment(object):
-    @staticmethod
-    def from_os_environ():
-        return Environment(**dict(os.environ))
-    @staticmethod
-    def is_ignored(name):
+    '''
+    Holds a dictionary of named values that can be exported to the shell
+    environment.  Provides various features to help work with environment
+    variables, including attribute-style access, path manipulation, iteration,
+    and change analysis.
+
+    The vars member provides read/write access to variables using either
+    attribute-style or dictionary-style access, i.e. by specifying the key
+    after '.' as if it is a member as a string inside square brackets.
+    '''
+
+    @classmethod
+    def is_special_variable(cls, name):
+        '''
+        Return True if the named variable is a special shell built-in.
+        '''
         return not name or name == 'SHLVL' or not name[0].isalpha()
-    @staticmethod
-    def strip_path(name, path, *todel):
-        todel = [t for t in todel if t is not None]
-        if todel:
-            console.info('Stripping from path (%s):\n   %s' % (name, '\n   '.join(todel)))
-        return ':'.join([dir for dir in path.split(':')
-                            if not [item for item in todel if dir.startswith(item)]])
-    @staticmethod
-    def prepend_path(path, *toadd):
-        old = path.split(':')
-        new = [dir for dir in toadd if dir not in old]
-        return ':'.join(new + old)
-    @staticmethod
-    def append_path(path, *toadd):
-        old = path.split(':')
-        new = [dir for dir in toadd if dir not in old]
-        return ':'.join(old + new)
-    def __init__(self, **kwargs):
-        self.vars = {}
-        for name in kwargs:
-            if not Environment.is_ignored(name):
-                self.vars[name] = kwargs[name]
-    def __getitem__(self, name):
-        return self.vars.get(name, None)
-    def __setitem__(self, name, value):
-        if not Environment.is_ignored(name):
-            self.vars[name] = value
-    def __getattr__(self, name):
-        if name != 'vars':
-            return self.vars.get(name, None)
-    def __setattr__(self, name, value):
-        if name == 'vars':
-            object.__setattr__(self, name, value)
-        elif not Environment.is_ignored(name):
-            self.vars[name] = value
-    def __iter__(self):
-        names = self.vars.keys()
-        names.sort()
-        for name in names:
-            yield (name, self.vars[name])
-    def clone(self):
-        return Environment(**self.vars)
-    def to_os_environ(self, verbose = False):
+
+    @classmethod
+    def remove_from_path_string(cls, path_string, *directories_to_remove):
+        '''
+        Remove any of the path elements from "path_string" that start with any
+        of the filesystem paths in "directories_to_remove".
+        '''
+        def need_to_remove(path_dir):
+            for to_remove in directories_to_remove:
+                if path_dir.startswith(to_remove):
+                    return True
+            return False
+        return os.pathsep.join([path_dir for path_dir in path_string.split(os.pathsep)
+                                    if not need_to_remove(path_dir)])
+
+    @classmethod
+    def prepend_to_path_string(cls, path_string, *directories_to_prepend):
+        '''
+        Insert the "directories_to_prepend" filesystem paths in front of
+        "path_string" and remove those directories when they are repeated later
+        in the path string.
+
+        Potentially, this can be used two ways, to inject new directories into
+        a path and to elevate the priority of ones that are already there.
+        '''
+        new = list(copy.copy(directories_to_prepend))
+        for old in path_string.split(os.pathsep):
+            if old not in new:
+                new.append(old)
+        return os.pathsep.join(new)
+
+    @classmethod
+    def append_to_path_string(cls, path_string, *directories_to_append):
+        '''
+        Append the "directories_to_append" filesystem paths to the end of
+        "path_string" when they are not already present in the path string.
+        '''
+        directories_in_path_string = path_string.split(os.pathsep)
+        for directory in directories_to_append:
+            if directory and directory not in directories_in_path_string:
+                directories_in_path_string.append(directory)
+        return os.pathsep.join(directories_in_path_string)
+
+    @classmethod
+    def import_from_shell(cls):
+        '''
+        Incorporate variables and values from the shell environment.
+
+        Filter out internal/special shell environment variables.
+        '''
+        d = {name: os.environ[name] for name in os.environ if not cls.is_special_variable(name)}
+        return Environment(**d)
+
+    def export_to_shell(self):
+        '''
+        Copy variables and values to the shell environment.
+
+        Filter out internal/special shell environment variables.
+        '''
         for name in self.vars:
-            if name not in os.environ or self.vars[name] != os.environ[name]:
-                if verbose:
-                    console.info('ENV: %s=%s' % (name, self.vars[name]))
+            if (not self.is_special_variable(name) and (
+                    name not in os.environ or
+                    self.vars[name] != os.environ[name])):
                 os.environ[name] = self.vars[name]
+
+    def __init__(self, **kwargs):
+        '''
+        Construct an Environment object with optional keyword arguments used to
+        specify an initial set of variables/values.
+        '''
+        class Vars(dict):
+            def __getattr__(self, name):
+                return self.get(name, None)
+            def __setattr__(self, name, value):
+                self[name] = value
+        self.vars = Vars(**kwargs)
+
+    def clone(self):
+        '''
+        Clone a copy of the environment variables/values.
+        '''
+        return Environment(**self.vars)
+
     def diff(self, other):
-        tomod = []
-        toadd = []
-        todel = []
-        names = self.vars.keys()
-        names.sort()
-        for name in names:
+        '''
+        Compare to another Environment object and return an object with added,
+        modified, and removed lists that specify all the changes that happened
+        to the other Environment.
+
+        The added list has (name, value) tuples.
+        The modified list has (name, old_value, new_value) tuples.
+        The removed list has (name, old_value) tuples.
+
+        All returned lists are sorted by name.
+        '''
+        class Result(object):
+            def __init__(self):
+                self.added = []
+                self.modified = []
+                self.removed = []
+            def __str__(self):
+                return os.linesep.join(['added=%s' % self.added,
+                                        'modified=%s' % self.modified,
+                                        'removed=%s' % self.removed])
+        result = Result()
+        for name in sorted(self.vars.keys()):
             if name not in other.vars:
-                toadd.append((name, self.vars[name]))
+                result.added.append((name, self.vars[name]))
             elif self.vars[name] != other.vars[name]:
-                tomod.append((name, self.vars[name]))
-        names = other.vars.keys()
-        names.sort()
-        for name in names:
+                result.modified.append((name, other.vars[name], self.vars[name]))
+        for name in sorted(other.vars.keys()):
             if name not in self.vars:
-                todel.append(name)
-        return (tomod, toadd, todel)
-    def strip_path_var(self, name, *todel):
+                result.removed.append((name, other.vars[name]))
+        return result
+
+    def remove_from_path(self, name, *directories_to_remove):
+        '''
+        Remove any of the path elements from the "name" path variable that
+        start with any of the filesystem paths in "directories_to_remove".
+
+        Does nothing if the named variable does not exist.
+        '''
         if name in self.vars:
-            self.vars[name] = Environment.strip_path(name, self.vars[name], *todel)
-    def prepend_path_var(self, name, *toadd):
+            self.vars[name] = self.remove_from_path_string(self.vars[name],
+                                                           *directories_to_remove)
+
+    def prepend_to_path(self, name, *directories_to_prepend):
+        '''
+        Insert the "directories_to_prepend" filesystem paths in front of the
+        "name" path variable and remove those directories when they are
+        repeated later in the path string.
+
+        If the "name" variable does not yet exist initialize it with the
+        specified directories.
+
+        Potentially, this can be used two ways, to inject new directories into
+        a path and to elevate the priority of ones that are already there.
+        '''
         if name in self.vars:
-            self.vars[name] = Environment.prepend_path(self.vars[name], *toadd)
+            self.vars[name] = self.prepend_to_path_string(self.vars[name],
+                                                          *directories_to_prepend)
         else:
-            self.vars[name] = ':'.join(toadd)
-    def append_path_var(self, name, *toadd):
+            self.vars[name] = os.pathsep.join(directories_to_prepend)
+
+    def append_to_path(self, name, *directories_to_append):
+        '''
+        Append the "directories_to_append" filesystem paths to the end of the
+        "name" path variable when they are not already present in the path.
+
+        If the "name" variable does not yet exist initialize it with the
+        specified directories.
+        '''
         if name in self.vars:
-            self.vars[name] = Environment.append_path(self.vars[name], *toadd)
+            self.vars[name] = self.append_to_path_string(self.vars[name],
+                                                         *directories_to_append)
         else:
-            self.vars[name] = ':'.join(toadd)
-    def substitute_var(self, name, pattern, replacement, count = 0):
+            self.vars[name] = os.pathsep.join(directories_to_append)
+
+    def substitute_value(self, name, pattern, replacement, count=0):
+        r'''
+        Perform regular expression substitution on the "name" variable, if it
+        exists. Replace the regular expression "pattern" with the "replacement"
+        string. If specified, "count" can limit the number of pattern
+        repetitions that get replaced.
+
+        It is worth mentioning that patterns and replacement strings can take
+        advantage of regular expression groups to bring across portions of the
+        original string, by using parentheses to specify a group in the pattern
+        and \N insert group #N (1-N) into the text.
+
+        Does nothing if the named variable does not exist.
+        '''
         if name in self.vars:
             self.vars[name] = re.sub(pattern, replacement, self.vars[name], count)
 
-class EnvironmentDiffGenerator(object):
-    def __init__(self, env1, env2, unset = False):
-        self.env1  = env1
-        self.env2  = env2
-        self.unset = unset
-    def __iter__(self):
-        (tomod, toadd, todel) = self.env2.diff(self.env1)
-        togen = tomod + toadd
-        togen.sort()
-        for (name, value) in togen:
-            yield('export %s="%s"' % (name, value))
-        if self.unset:
-            for name in todel:
-                yield('unset %s' % name)
+    def __str__(self):
+        '''
+        Convert to a string by returning a linefeed-separated sorted list of
+        NAME=VALUE pairs.
+        '''
+        return os.linesep.join(['='.join([k, self.vars[k]]) for k in sorted(self.vars.keys())])
 
-def find_in_path(path, name, executable = False):
-    '''Return path to name if found in path, or None if not found.  Require
-    executable if executable is True.'''
-    for dir in path.split(':'):
-        chk_path = os.path.join(dir, name)
-        if executable:
-            if sys.platform in ('cygwin', 'windows'):
-                for ext in ('', '.exe', '.bat', '.cmd', '.com'):
-                    if os.path.exists(chk_path + ext):
-                        return chk_path
-            elif (os.stat(chk_path)[0] & 0111) != 0:
-                return chk_path
-        elif os.path.exists(chk_path):
-            return chk_path
-    return None
+    def __eq__(self, other):
+        '''
+        Comparisons apply to the contained variables/values.
+        '''
+        return self.vars == other.vars

@@ -104,8 +104,10 @@ Python 2.7 or 3.5 and later.
 
 # Future features:
 # - YAML configuration
-# - Saved option sets
-# - Wrap existing external commands with DSL
+# - Save option sets for scopes, e.g. exclude object files in build environment
+#   from sync and archive command, or run using sudo in /etc.
+# - Wrap existing external commands with DSL. E.g. all saving default options
+#   for ag/ack searches in various scopes (locations).
 
 #===============================================================================
 class ArgumentSpec(object):

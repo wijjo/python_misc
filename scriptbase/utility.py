@@ -65,12 +65,29 @@ def caller_name(skip=2):
 
 
 def find_executable(*names):
-    dirs = os.environ['PATH'].split(':')
+    '''Return path to first name found in PATH.'''
+    env_path = os.environ['PATH']
     for name in names:
-        for dir in dirs:
-            path = os.path.join(dir, name)
-            if os.path.exists(path) and os.access(path, os.X_OK):
-                return path
+        path = find_in_path(env_path, name, executable=True)
+        if path:
+            return path
+    return None
+
+
+def find_in_path(path, name, executable=False):
+    '''Return path to name if found in path, or None if not found.  Require
+    executable if executable is True.'''
+    for dir in path.split(os.pathsep):
+        chk_path = os.path.join(dir, name)
+        if executable:
+            if sys.platform in ('cygwin', 'windows'):
+                for ext in ('', '.exe', '.bat', '.cmd', '.com'):
+                    if os.path.exists(chk_path + ext):
+                        return chk_path
+            elif (os.stat(chk_path)[0] & 0111) != 0:
+                return chk_path
+        elif os.path.exists(chk_path):
+            return chk_path
     return None
 
 
