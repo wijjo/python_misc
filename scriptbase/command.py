@@ -168,6 +168,8 @@ class Command(object):
             self.capture_on_exit = capture_on_exit
         if input_source is not None:
             self.input_source = input_source
+            if not hasattr(self.input_source, 'fileno'):
+                pass
         if dryrun is not None:
             self.dryrun = dryrun
         return self
@@ -181,7 +183,7 @@ class Command(object):
                         stdin=self.input_source,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT)
-        if self.input_source:
+        if self.input_source and hasattr(self.input_source, 'fileno'):
             self.input_source.close()
         return self
 

@@ -317,8 +317,9 @@ def run_applescript(*lines):
         for subline in line.split('\n'):
             if subline.strip():
                 args.extend(['-e', subline.strip()])
-    cmd = command.Command(*args)
-    return cmd.run()
+    with command.Command(*args) as cmd:
+        cmd.run()
+    return cmd.rc
 
 
 def run_application_applescript(app, *lines):

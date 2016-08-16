@@ -7,6 +7,10 @@ import time
 from .. import command
 from .. import console
 import plistlib
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 
 
 class DiskutilCommand(command.Command):
@@ -14,12 +18,11 @@ class DiskutilCommand(command.Command):
     Diskutil Command object for regular commands.
     """
 
-    def __init__(self, verb, args, dryrun=False):
+    def __init__(self, verb, *args):
         """
         Constructor takes a verb and arguments and prepends ['diskutil'].
         """
         command.Command.__init__(self, 'diskutil', verb, *args)
-        self.options(dryrun=dryrun)
 
 
 class CoreStorageCommand(DiskutilCommand):
@@ -27,12 +30,12 @@ class CoreStorageCommand(DiskutilCommand):
     Diskutil Command object for corestorage commands.
     """
 
-    def __init__(self, verb, args, dryrun=False):
+    def __init__(self, verb, *args):
         """
         Constructor takes a verb and arguments and prepends ['diskutil',
         'corestorage'].
         """
-        DiskutilCommand.__init__(self, 'coreStorage', verb, args, dryrun=dryrun)
+        DiskutilCommand.__init__(self, 'coreStorage', verb, *args)
 
 
 class PasswordProvider(object):
@@ -157,15 +160,16 @@ class VolumeManager(object):
         return VolumeSet(volumes, password_provider=password_provider)
 
     def _mount_volume(self, volume):
-        with DiskutilCommand('mount', volume.volid, dryrun=self.dryrun) as cmd:
+        with DiskutilCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
             pass
         if cmd.rc != 0:
             console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
         console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
     def _unlock_volume(self, volume, password):
-        with CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password,
-                               dryrun=self.dryrun) as cmd:
+        with CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password
+                ).options(dryrun=self.dryrun) as cmd:
+            pass
         if cmd.rc != 0:
             console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
         console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
@@ -173,8 +177,9 @@ class VolumeManager(object):
         self._mount_volume(volume)
 
     def _mount_image(self, volume, password):
-        with command.Command('hdiutil', 'attach', volume.volid, '-stdinpass',
-                             input=password, dryrun=self.dryrun) as cmd:
+        with command.Command('hdiutil', 'attach', volume.volid, '-stdinpass'
+                ).options(dryrun=self.dryrun).pipe_in(password) as cmd:
+            pass
         if cmd.rc != 0:
             console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
         console.info('Attach succeeded: %s' % volume.volid)
