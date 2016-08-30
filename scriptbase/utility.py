@@ -84,7 +84,7 @@ def find_in_path(path, name, executable=False):
                 for ext in ('', '.exe', '.bat', '.cmd', '.com'):
                     if os.path.exists(chk_path + ext):
                         return chk_path
-            elif (os.stat(chk_path)[0] & 0111) != 0:
+            elif os.path.exists(chk_path) and (os.stat(chk_path)[0] & 0111) != 0:
                 return chk_path
         elif os.path.exists(chk_path):
             return chk_path
