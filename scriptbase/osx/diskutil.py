@@ -81,7 +81,7 @@ class VolumeManager(object):
         self.dryrun = dryrun
 
     def get_complete_volume_set(self):
-        with CoreStorageCommand('list', ['-plist']) as cmd:
+        with CoreStorageCommand('list', '-plist') as cmd:
             pass
         plist_text = '\n'.join(cmd.output_lines)
         plist = plistlib.readPlistFromString(plist_text)
