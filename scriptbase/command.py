@@ -16,6 +16,7 @@ import sys
 import os
 import subprocess
 import tempfile
+import pipes
 
 # Import six if available globally or locally from scriptbase/python
 # Python2-3 compatibility helper library.
@@ -183,6 +184,8 @@ class Command(object):
                         stdin=self.input_source,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT)
+        else:
+            print(' '.join([pipes.quote(arg) for arg in self.args]))
         if self.input_source and hasattr(self.input_source, 'fileno'):
             self.input_source.close()
         return self

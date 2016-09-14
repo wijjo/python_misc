@@ -162,27 +162,30 @@ class VolumeManager(object):
     def _mount_volume(self, volume):
         with DiskutilCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
             pass
-        if cmd.rc != 0:
-            console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
-        console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
+        if not self.dryrun:
+            if cmd.rc != 0:
+                console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
+            console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
     def _unlock_volume(self, volume, password):
         with CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password
                 ).options(dryrun=self.dryrun) as cmd:
             pass
-        if cmd.rc != 0:
-            console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
-        console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
-        time.sleep(5)
+        if not self.dryrun:
+            if cmd.rc != 0:
+                console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
+            console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
+            time.sleep(10)
         self._mount_volume(volume)
 
     def _mount_image(self, volume, password):
         with command.Command('hdiutil', 'attach', volume.volid, '-stdinpass'
                 ).options(dryrun=self.dryrun).pipe_in(password) as cmd:
             pass
-        if cmd.rc != 0:
-            console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
-        console.info('Attach succeeded: %s' % volume.volid)
+        if not self.dryrun:
+            if cmd.rc != 0:
+                console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
+            console.info('Attach succeeded: %s' % volume.volid)
 
 class VolumeSet(object):
     """
