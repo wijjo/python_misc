@@ -29,7 +29,7 @@ def iter_mounted_volumes():
     """
     with command.Command('mount') as cmd:
         for line in cmd:
-            m = .RE_MOUNT.match(line)
+            m = RE_MOUNT.match(line)
             if m:
                 yield m.group(2), m.group(1)
 

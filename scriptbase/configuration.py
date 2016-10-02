@@ -14,6 +14,7 @@
 
 import os
 import copy
+import yaml
 from . import console
 from . import flatten
 
@@ -98,7 +99,7 @@ class ConfigurationReader(object):
         self.stream = stream
 
     def read_all(self):
-        return stream.read()
+        return self.stream.read()
 
 #===============================================================================
 class YAMLSyntax(SyntaxBase):
