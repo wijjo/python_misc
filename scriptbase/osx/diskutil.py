@@ -1,44 +1,61 @@
-#!/usr/bin/env python
+# Copyright 2016 Steven Cooper
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-# Mac diskutil API
+"""
+Mac diskutil API.
+"""
 
 import os
 import time
-from .. import command
-from .. import console
 import plistlib
+import getpass
 try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
 
+from .. import command
+from .. import console
 
-class DiskutilCommand(command.Command):
+LIST_PATH = os.path.expanduser('~/.bcvols')
+
+
+class DUCommand(command.Command):
     """
     Diskutil Command object for regular commands.
     """
 
     def __init__(self, verb, *args):
         """
-        Constructor takes a verb and arguments and prepends ['diskutil'].
+        Constructor takes verb + arguments and prepends ['diskutil'].
         """
         command.Command.__init__(self, 'diskutil', verb, *args)
 
 
-class CoreStorageCommand(DiskutilCommand):
+class DUCoreStorageCommand(DUCommand):
     """
     Diskutil Command object for corestorage commands.
     """
 
     def __init__(self, verb, *args):
         """
-        Constructor takes a verb and arguments and prepends ['diskutil',
-        'corestorage'].
+        Constructor takes verb + arguments and prepends ['diskutil', 'coreStorage'].
         """
-        DiskutilCommand.__init__(self, 'coreStorage', verb, *args)
+        DUCommand.__init__(self, 'coreStorage', verb, *args)
 
 
-class PasswordProvider(object):
+class DUPasswordProvider(object):
     """
     Class used internally to receive and cache a password on demand.
     """
@@ -67,7 +84,7 @@ class PasswordProvider(object):
         return self.password
 
 
-class VolumeManager(object):
+class DUVolumeManager(object):
     """
     Provides the high level API for managing CoreStorage volumes.
     """
@@ -81,7 +98,7 @@ class VolumeManager(object):
         self.dryrun = dryrun
 
     def get_complete_volume_set(self):
-        with CoreStorageCommand('list', '-plist') as cmd:
+        with DUCoreStorageCommand('list', '-plist') as cmd:
             pass
         plist_text = '\n'.join(cmd.output_lines)
         plist = plistlib.readPlistFromString(plist_text)
@@ -93,7 +110,7 @@ class VolumeManager(object):
                 log_volumes = log_volume_family['CoreStorageLogicalVolumes']
                 for log_volume in log_volumes:
                     volumes.append(self._make_volume(log_volume['CoreStorageUUID']))
-        return VolumeSet(volumes)
+        return DUVolumeSet(volumes)
 
     def get_volume_set(self, volids):
         return self._create_volume_set([self._make_volume(volid) for volid in volids])
@@ -137,15 +154,15 @@ class VolumeManager(object):
                             blockcount = int(fields[2])
                         if fields[0] == 'blocksize':
                             blocksize = int(fields[2])
-            return Volume(volid, name, blockcount * blocksize, status)
+            return DUVolume(volid, name, blockcount * blocksize, status)
         else:
-            with CoreStorageCommand('information', '-plist', volid) as cmd:
+            with DUCoreStorageCommand('information', '-plist', volid) as cmd:
                 pass
             plist_text = '\n'.join(cmd.output_lines)
             if cmd.rc != 0:
-                return Volume(volid, None, 0, None)
+                return DUVolume(volid, None, 0, None)
             plist = plistlib.readPlistFromString(plist_text)
-            return Volume(
+            return DUVolume(
                 volid,
                 plist['CoreStorageLogicalVolumeName'],
                 int(plist['CoreStorageLogicalVolumeSize']),
@@ -153,14 +170,14 @@ class VolumeManager(object):
             )
 
     def _create_volume_set(self, volumes):
-        password_provider = PasswordProvider(self.get_password,
+        password_provider = DUPasswordProvider(self.get_password,
             'A password is required to unlock volume(s).',
             'No get_password call-back was provided and a password is needed.',
             dryrun=self.dryrun)
-        return VolumeSet(volumes, password_provider=password_provider)
+        return DUVolumeSet(volumes, password_provider=password_provider)
 
     def _mount_volume(self, volume):
-        with DiskutilCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
+        with DUCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
             pass
         if not self.dryrun:
             if cmd.rc != 0:
@@ -168,7 +185,7 @@ class VolumeManager(object):
             console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
     def _unlock_volume(self, volume, password):
-        with CoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password
+        with DUCoreStorageCommand('unlockVolume', volume.volid, '-passphrase', password
                 ).options(dryrun=self.dryrun) as cmd:
             pass
         if not self.dryrun:
@@ -187,7 +204,7 @@ class VolumeManager(object):
                 console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
             console.info('Attach succeeded: %s' % volume.volid)
 
-class VolumeSet(object):
+class DUVolumeSet(object):
     """
     Holds a related set of volumes that require at most one password to unlock
     any or all of them. The password provider supports retrieving the password
@@ -203,10 +220,54 @@ class VolumeSet(object):
             yield volume
 
 
-class Volume(object):
+class DUVolume(object):
 
     def __init__(self, volid, name, size, status):
         self.volid = volid
         self.name = name
         self.size = size
         self.status = status
+
+
+class CSVolumeManager(DUVolumeManager):
+
+    def __init__(self, dryrun=False):
+        def get_password():
+            return getpass.getpass('Password: ')
+        DUVolumeManager.__init__(self, get_password=get_password, dryrun=dryrun)
+
+    def cs_generate_list_file(self):
+        console.info('"%s" does not exist.' % LIST_PATH,
+                     'Generated a new file with information about all volumes.',
+                     'Edit it to specify the volume ID list to use.')
+        volset = self.get_complete_volume_set()
+        try:
+            with open(LIST_PATH, 'w') as f:
+                for volume in volset:
+                    f.write('# name=%s size=%d id=%s\n# %s\n'
+                                % (volume.name, volume.size, volume.volid, volume.volid))
+        except (IOError, OSError) as e:
+            console.abort('Failed to generate volume ID list file "%s".' % LIST_PATH, e)
+
+    def cs_volids(self):
+        if not os.path.exists(LIST_PATH):
+            self.cs_generate_list_file()
+            sys.exit(1)
+        volids = []
+        try:
+            with open(LIST_PATH) as f:
+                for line in f:
+                    s = line.strip()
+                    if not s.startswith('#'):
+                        volids.append(s)
+        except (IOError, OSError) as e:
+            console.abort('Failed to read volume ID list file "%s".' % LIST_PATH, e)
+        return volids
+
+    def cs_mount(self):
+        volids = self.cs_volids()
+        if not volids:
+            console.abort('There are no volumes to mount.',
+                          'Make sure at least one is specified in "%s".' % LIST_PATH)
+        volset = self.get_volume_set(volids)
+        self.mount_volume_set(volset)

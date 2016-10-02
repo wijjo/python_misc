@@ -18,13 +18,40 @@ import re
 
 from . import console
 from . import command
-from . import utility
 
 
-class G:
-    github_root_config = os.path.expanduser('~/.github_root')
-    re_section = re.compile('^\s*\[([^\]]+)\]\s*$')
-    re_version = re.compile('.* version ([^\s]+)', re.IGNORECASE)
+GITHUB_ROOT_CONFIG = os.path.expanduser('~/.github_root')
+RE_SECTION = re.compile('^\s*\[([^\]]+)\]\s*$')
+RE_VERSION = re.compile('.* version ([^\s]+)', re.IGNORECASE)
+
+
+def parse_version_number_string(version_string):
+    return [int(s) for s in version_string.split(' ')[-1].split('.')]
+
+
+def version_number_compare(version_string_1, version_string_2):
+    """
+    Compare two dot-separated version strings
+    return 0 if version_string_1 = version_string_2
+          -1 if version_string_1 < version_string_2
+          +1 if version_string_1 > version_string_2
+    """
+    if version_string_1 is None:
+        if version_string_2 is None:
+            return 0
+        return -1
+    if version_string_2 is None:
+        return 1
+    version1 = parse_version_number_string(version_string_1)
+    version2 = parse_version_number_string(version_string_2)
+    for i in xrange(len(version2)):
+        if len(version1) < i + 1 or version1[i] < version2[i]:
+            return -1
+        if version1[i] > version2[i]:
+            return +1
+    if len(version1) > len(version2):
+        return +1
+    return 0
 
 
 def get_info():
@@ -36,7 +63,7 @@ def get_info():
     with open(os.path.expanduser('~/.gitconfig')) as f:
         section = ''
         for line in f:
-            m = G.re_section.match(line)
+            m = RE_SECTION.match(line)
             if m:
                 section = m.group(1).lower()
                 setattr(info, section, Node())
@@ -226,15 +253,20 @@ def git_project_root(dir=None, optional=False):
 
 
 def get_github_root(github_root):
-    filetool = utility.FileTool(lstrip=True, rstrip=True)
     if github_root:
         console.info('Saving new GitHub root...')
-        filetool.save(G.github_root_config, github_root)
+        try:
+            with open(GITHUB_ROOT_CONFIG, 'w') as f:
+                f.write(github_root)
+                f.write(os.linesep)
+        except (IOError, OSError) as e:
+            console.abort('Unable to save "%s"' % GITHUB_ROOT_CONFIG, e)
     else:
-        for line in filetool.readlines(G.github_root_config):
-            github_root = line
-        if not github_root:
-            console.abort('Unable to determine the GitHub root - please specify one.')
+        try:
+            with open(GITHUB_ROOT_CONFIG) as f:
+                github_root = f.read().strip()
+        except (IOError, OSError) as e:
+            console.abort('Unable to read "%s"' % GITHUB_ROOT_CONFIG, e)
     return github_root
 
 
@@ -243,9 +275,9 @@ def git_version():
     with command.Command('git', '--version') as cmd:
         for line in cmd:
             if version is None:
-                m = G.re_version.search(line)
+                m = RE_VERSION.search(line)
                 if not m:
-                    utility.abort('Failed to parse git version: %s', line.strip())
+                    console.abort('Failed to parse git version: %s', line.strip())
                 version = m.group(1)
     return version
 
@@ -254,7 +286,7 @@ def is_git_version_newer(min_version):
     version = git_version()
     if version is None:
         return False
-    return utility.version_compare(version, min_version) >= 0
+    return version_number_compare(version, min_version) >= 0
 
 
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):

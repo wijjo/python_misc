@@ -27,7 +27,7 @@ def in_path(prog):
         if os.path.exists(path):
             return path
 
-def choose(*clss):
+def _choose(*clss):
     for cls in clss:
         needs_gui = getattr(cls, 'gui', False)
         if not needs_gui or not is_text and hasattr(cls, 'program') and in_path(cls.program):
@@ -107,8 +107,8 @@ class KdeSudo(SudoBase):
     def dialog_run(self, cmd):
         return os.system('kdesudo %s' % cmd)
 
-dialog_general = choose(Kdialog, Zenity, Dialog)
-dialog_sudo    = choose(KdeSudo, GkSudo, Sudo)
+dialog_general = _choose(Kdialog, Zenity, Dialog)
+dialog_sudo    = _choose(KdeSudo, GkSudo, Sudo)
 
 def info(*args, **kwargs):
     return dialog_general.info(*args, **kwargs)

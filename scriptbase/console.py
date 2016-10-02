@@ -12,6 +12,8 @@
 import sys
 import os
 import copy
+import re
+
 from . import flatten
 
 """
@@ -23,6 +25,7 @@ DEBUG = False
 OUTPUT_STREAM = sys.stdout
 ERROR_STREAM = sys.stderr
 INDENT_STRING = '  '
+RE_YES_NO = re.compile('[yn]?', re.IGNORECASE)
 
 
 def set_verbose(verbose):
@@ -133,16 +136,79 @@ def input(prompt):
         raise
 
 
-def menu(fixed_choices,
-         message = None,
-         default = None,
-         other   = None,
-         test    = None,
-         prompt  = 'Choice'):
-    if not message:
-        message = 'Menu'
+def prompt_for_choice(prompt, *choices):
+    """
+    Prompt the user for multiple choice input. Keep prompting until a valid
+    choice is received. Choice shortcuts require unique first letters. The user
+    can either respond with a single letter or an entire word.
+    """
+    letters = set()
+    choice_list = []
+    for choice in choices:
+        if not choice:
+            abort('Empty choice passed to prompt_for_choice().')
+        if choice[0] in letters:
+            abort('Non-unique choices %s passed to prompt_for_choice().' % str(choices))
+        letters.add(choice[0])
+        choice_list.append('[%s]%s' % (choice[0], choice[1:]))
+    while True:
+        sys.stdout.write('%s (%s) ' % (prompt, '/'.join(choice_list)))
+        sys.stdout.flush()
+        response = sys.stdin.readline().strip()
+        if response in letters or response in choices:
+            return response[0]
+
+
+def prompt_re(prompt, re, default):
+    """
+    Prompt for a response that must match a regular expression.
+    Re-prompt when it doesn't match.
+    Return the response when it matches.
+    """
+    while True:
+        sys.stdout.write('%s: ' % prompt)
+        try:
+            s  = sys.stdin.readline().strip()
+            if re.match(s):
+                if not s:
+                    return default
+                return s
+            error('bad input - try again')
+        except KeyboardInterrupt:
+            abort('', 'Keyboard interrupt')
+
+
+def prompt_yes_no(prompt, default=False):
+    """
+    Prompt for a yes/no response with a boolean default value substituting for
+    an empty response.
+    Return a boolean value when the response matches 'y', 'n', or empty.
+    """
+    if default:
+        yn = 'Y/n'
+        sdef = 'y'
+    else:
+        yn = 'y/N'
+        sdef = 'n'
+    return (prompt_re('%s (%s)' % (prompt, yn), RE_YES_NO, sdef).lower() == 'y')
+
+
+def prompt_menu(fixed_choices,
+                heading=None,
+                default=None,
+                other=None,
+                test=None,
+                prompt='Choice'):
+    """
+    Prompt for an integer choice from a menu of alternatives.
+    Return the choice string or the default if one was provided.
+    Re-prompt on bad or out of range integer choices or on empty input without
+    a default.
+    """
+    if not heading:
+        heading = 'Menu'
     print('')
-    print('::: %s :::' % message)
+    print('::: %s :::' % heading)
     choices = copy.copy(fixed_choices)
     imax = len(choices)
     iother = None

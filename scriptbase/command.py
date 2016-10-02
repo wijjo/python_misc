@@ -16,14 +16,8 @@ import sys
 import os
 import subprocess
 import tempfile
-import pipes
 
-# Import six if available globally or locally from scriptbase/python
-# Python2-3 compatibility helper library.
-try:
-    import six
-except ImportError:
-    from .python import six
+from . import utility
 
 """
 Wraps the standard Python subprocess module to simplify common usage patterns.
@@ -185,7 +179,7 @@ class Command(object):
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT)
         else:
-            print(' '.join([pipes.quote(arg) for arg in self.args]))
+            print(utility.shell_command_string(*self.args))
         if self.input_source and hasattr(self.input_source, 'fileno'):
             self.input_source.close()
         return self
@@ -243,9 +237,9 @@ class Command(object):
         """
         if isinstance(input_obj, Command):
             input_source = self._input_source_from_command(input_obj)
-        elif isinstance(input_obj, six.string_types) or isinstance(input_obj, bytes):
+        elif utility.is_string(input_obj):
             input_source = self._input_source_from_strings(False, input_obj)
-        elif hasattr(input_obj, '__iter__'):
+        elif utility.is_iterable(input_obj):
             input_source = self._input_source_from_strings(True, *input_obj)
         else:
             # Assume everything else is a proper file stream.
