@@ -135,3 +135,21 @@ def shlex_quote(arg):
     Return argument quoted as needed for proper shell parsing.
     """
     return six.moves.shlex_quote(arg)
+
+
+def import_module_path(module_source_path, module_name=None):
+    """
+    Import module using an explicit source file path.
+    """
+    if not module_name:
+        module_name = '_%s' % '_'.join([s.replace('.', '_') for s in os.path.split(module_source_path)])
+    # http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
+    if sys.version_info.major < 3 or (sys.version_info.major == 3 and sys.version_info.minor < 5):
+        import importlib.util
+        module_spec = importlib.util.spec_from_file_location(module_name, module_source_path)
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+    else:
+        import imp
+        module = imp.load_source(module_name, module_source_path)
+    return module

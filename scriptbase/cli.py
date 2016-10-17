@@ -17,6 +17,8 @@ import sys
 import os
 import copy
 import inspect
+import glob
+import traceback
 
 from . import command
 from . import utility
@@ -169,6 +171,23 @@ class Verb(object):
     parser = None
     verbs_by_function_ref = {}
 
+    class Help(object):
+        def __init__(self, parsers_by_name):
+            self.parsers_by_name = parsers_by_name
+        def __call__(self, runner):
+            names = runner.cmdargs.verbs
+            if not names:
+                names = ['_']
+            i = 0
+            for verbname in names:
+                if i > 0:
+                    sys.stdout.write('\n')
+                i += 1
+                if verbname in self.parsers_by_name:
+                    self.parsers_by_name[verbname].print_help()
+                else:
+                    sys.stderr.write('* "%s" is not a supported verb. *\n' % verbname)
+
     def __init__(self, name=None,
                        description=None,
                        is_root=False,
@@ -176,6 +195,18 @@ class Verb(object):
                        function=None,
                        args=[],
                        aliases=[]):
+        """
+        Verb constructor
+
+        Keyword arguments:
+          name         name used to invoke verb from a CLI command
+          description  text description
+          is_root      used internally to identify the root verb
+          parent       parent Verb object or @Command function
+          function     implementation function reference
+          args         argument/option specifications list
+          aliases      alias list, i.e. alternative names, for this verb
+        """
         if not is_root and not Verb.root:
             Verb.root = Verb(is_root=True)
         self.name = name
@@ -211,8 +242,28 @@ class Verb(object):
 
     def configure_parser(self, parser):
         self._update()
-        verb_builder = VerbBuilder(parser, self)
-        verb_builder.build(add_help=self.is_root)
+        for arg_spec in self.arg_specs:
+            parser.add_argument(*arg_spec.args, **arg_spec.kwargs)
+        if self.function:
+            parser.set_defaults(func=self.function)
+        if self.get_verbs():
+            help = '"help SUBCOMMAND" for details'
+            # For some reason Python 3 needs dest set in order to get the
+            # correct function that was saved by set_defaults(func=...).  Note
+            # that nested sub-commands with this use of set_defaults() is
+            # broken in Python 3 versions before 3.5.
+            subparsers = parser.add_subparsers(dest='subcommand', help=help)
+            subparsers.required = True
+            parsers_by_name = {'_': parser}
+            for verb in self.get_verbs():
+                for verb_name in [verb.name] + list(verb.aliases):
+                    subparser = subparsers.add_parser(verb_name, description=verb.description)
+                    parsers_by_name[verb_name] = subparser
+                    verb.configure_parser(subparser)
+            if self.is_root:
+                helpparser = subparsers.add_parser('help', description='display command or verb help')
+                helpparser.add_argument('verbs', help='optional verb list', nargs='*')
+                helpparser.set_defaults(func=Verb.Help(parsers_by_name))
 
     def set_function(self, function):
         Verb.verbs_by_function_ref[function] = self
@@ -282,123 +333,6 @@ class Verb(object):
         return lines
 
 #===============================================================================
-class VerbBuilder(object):
-    """
-    CLI builder for verb sub-command.
-    """
-#===============================================================================
-
-    def __init__(self, parser, verb):
-        self.parser = parser
-        self.verb = verb
-
-    def build(self, add_help=False):
-        for arg_spec in self.verb.arg_specs:
-            self.parser.add_argument(*arg_spec.args, **arg_spec.kwargs)
-        if self.verb.function:
-            self.parser.set_defaults(func=self.verb.function)
-        if self.verb.get_verbs():
-            help = '"help SUBCOMMAND" for details'
-            # For some reason Python 3 needs dest set in order to get the
-            # correct function that was saved by set_defaults(func=...).  Note
-            # that nested sub-commands with this use of set_defaults() is
-            # broken in Python 3 versions before 3.5.
-            subparsers = self.parser.add_subparsers(dest='subcommand', help=help)
-            subparsers.required = True
-            parsers_by_name = {'_': self.parser}
-            for verb in self.verb.get_verbs():
-                subparser = subparsers.add_parser(verb.name, description=verb.description)
-                parsers_by_name[verb.name] = subparser
-                for alias in verb.aliases:
-                    subparser = subparsers.add_parser(alias, description=verb.description)
-                    parsers_by_name[alias] = subparser
-                verb.configure_parser(subparser)
-            if add_help:
-                helpparser = subparsers.add_parser('help', description='display command or verb help')
-                helpparser.add_argument('verbs', help='optional verb list', nargs='*')
-                helpparser.set_defaults(func=VerbHelp(parsers_by_name))
-
-#===============================================================================
-class VerbHelp(object):
-    """
-    Callable class for providing verb-specific help.
-    """
-#===============================================================================
-
-    def __init__(self, parsers_by_name):
-        self.parsers_by_name = parsers_by_name
-
-    def __call__(self, runner):
-        names = runner.cmdargs.verbs
-        if not names:
-            names = ['_']
-        i = 0
-        for verbname in names:
-            if i > 0:
-                sys.stdout.write('\n')
-            i += 1
-            if verbname in self.parsers_by_name:
-                self.parsers_by_name[verbname].print_help()
-            else:
-                sys.stderr.write('* "%s" is not a supported verb. *\n' % verbname)
-
-#===============================================================================
-class Main(object):
-    """
-    Function decorator class used to declare the main setup function.
-    """
-#===============================================================================
-
-    instance = None
-
-    def __init__(self, description=None,
-                       args=[],
-                       support_verbose=False,
-                       support_dryrun=False,
-                       support_pause=False):
-        self.description = description
-        self.arg_specs = args
-        self.support_verbose = support_verbose
-        self.support_dryrun = support_dryrun
-        self.support_pause = support_pause
-        self.function = None
-
-    def __call__(self, function):
-        if Main.instance:
-            console.abort('Only one @cli.Main() is allowed.')
-        self.function = function
-        Main.instance = self
-
-#===============================================================================
-def main(command_line=sys.argv[1:]):
-    """
-    Main CLI function to parse the arguments and invoke the appropriate command
-    function. Returns any result provided by the command function, which should
-    be a system exit code, i.e. 0 for success or non-zero for failure.
-    """
-#===============================================================================
-    if not Main.instance:
-        console.abort('No @cli.Main() was found.')
-    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
-    if Main.instance.support_verbose:
-        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
-    if Main.instance.support_dryrun:
-        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
-    if Main.instance.support_pause:
-        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
-    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
-    cmdargs = parser.parse_args(args=command_line)
-    runner = command.Runner(cmdargs)
-    try:
-        # Invoke main function (frequently does little or nothing).
-        Main.instance.function(runner)
-        # Invoke command implementation function.
-        if hasattr(runner.cmdargs, 'func'):
-            return runner.cmdargs.func(runner)
-    except KeyboardInterrupt:
-        sys.exit(255)
-
-#===============================================================================
 class Command(Verb):
     """
     Function decorator class used to declare a command or sub-command (if
@@ -425,3 +359,107 @@ class Command(Verb):
 
     def __call__(self, function):
         return self.set_function(function)
+
+#===============================================================================
+class Main(object):
+    """
+    Function decorator class used to declare the @Main function that declares
+    the top level CLI arguments and options, specifies other options that
+    affect how the CLI is built, and performs other optional setup operations.
+    """
+#===============================================================================
+
+    instance = None
+
+    def __init__(self, description=None,
+                       args=[],
+                       support_verbose=False,
+                       support_dryrun=False,
+                       support_pause=False):
+        self.description = description
+        self.arg_specs = args
+        self.support_verbose = support_verbose
+        self.support_dryrun = support_dryrun
+        self.support_pause = support_pause
+        self.function = None
+
+    def __call__(self, function):
+        if Main.instance:
+            console.abort('Only one @cli.Main() is allowed.')
+        self.function = function
+        Main.instance = self
+
+#===============================================================================
+class Runner(command.Runner):
+    def _invoke_implementation(self, name, func):
+        try:
+            func(self)
+        except KeyboardInterrupt:
+            sys.exit(255)
+        except Exception as e:
+            console.error('%s traceback (most recent call last)' % name)
+            (etype, value, tb) = sys.exc_info()
+            for line in traceback.format_list(traceback.extract_tb(tb)[1:]):
+                console.error(line.rstrip())
+            exc_lines = [line.rstrip() for line in traceback.format_exception_only(etype, value)]
+            console.error(*exc_lines)
+            sys.exit(255)
+
+#===============================================================================
+def main(command_line=sys.argv):
+    """
+    Main function to parse and validate the arguments and options, and then
+    invoke the assigned command function.
+
+    Returns any result provided by the command function, which should be a
+    system exit code, i.e. 0 for success or non-zero for failure.
+    """
+#===============================================================================
+    _discover_commands(command_line[0])
+    if not Main.instance:
+        console.abort('No @Main() was found.')
+    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
+    if Main.instance.support_verbose:
+        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
+    if Main.instance.support_dryrun:
+        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
+    if Main.instance.support_pause:
+        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
+    if not Verb.root:
+        console.abort("No @Command's were registered.")
+    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
+    cmdargs = parser.parse_args(args=command_line[1:])
+    if Main.instance.support_verbose:
+        console.set_verbose(cmdargs.verbose)
+    runner = Runner(cmdargs)
+    # Invoke @Main function (frequently does little or nothing).
+    runner._invoke_implementation('@Main', Main.instance.function)
+    # Invoke @Command function and return the exit code.
+    if hasattr(runner.cmdargs, 'func'):
+        return runner._invoke_implementation('@Command[%s]' % cmdargs.subcommand, runner.cmdargs.func)
+
+#===============================================================================
+def _discover_commands(command_path):
+    """
+    Import all *.py files from <name>.cli in a subdirectory of the program's
+    directory. Any @Command decorators will be processed.
+    """
+#===============================================================================
+    if not os.path.exists(command_path):
+        return
+    module_name = '.'.join(['cli', os.path.basename(command_path)])
+    #TODO: Look elsewhere, e.g. under home, /usr/share, etc.?
+    discover_dirs = ['%s.cli' % command_path]
+    for discover_dir in discover_dirs:
+        for path in glob.glob(os.path.join(discover_dir, '*.py')):
+            if os.path.basename(path).startswith('_'):
+                continue
+            console.verbose_info('CLI import: %s' % path)
+            try:
+                # Import the file rather than exec-ing a string so that other
+                # symbols in the file, e.g. utility functions, are available
+                # when the registered @Command function gets invoked later.
+                utility.import_module_path(path)
+            except Exception as e:
+                console.error('Exception while executing CLI source file: %s' % path)
+                raise

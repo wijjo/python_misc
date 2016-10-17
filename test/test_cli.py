@@ -75,7 +75,7 @@ class TestStream(object):
 def cli_main(*command_line):
     out, sys.stdout = sys.stdout, StringIO()
     err, sys.stderr = sys.stderr, StringIO()
-    cli.main(command_line=command_line)
+    cli.main(command_line=(['test_cli'] + list(command_line)))
     sys.stdout.seek(0)
     sys.stderr.seek(0)
     class Outputs(object):
