@@ -406,7 +406,7 @@ class Runner(command.Runner):
             sys.exit(255)
 
 #===============================================================================
-def main(command_line=sys.argv):
+def main(command_line=sys.argv, runner_type=Runner):
     """
     Main function to parse and validate the arguments and options, and then
     invoke the assigned command function.
@@ -431,7 +431,7 @@ def main(command_line=sys.argv):
     cmdargs = parser.parse_args(args=command_line[1:])
     if Main.instance.support_verbose:
         console.set_verbose(cmdargs.verbose)
-    runner = Runner(cmdargs)
+    runner = runner_type(cmdargs)
     # Invoke @Main function (frequently does little or nothing).
     runner._invoke_implementation('@Main', Main.instance.function)
     # Invoke @Command function and return the exit code.
