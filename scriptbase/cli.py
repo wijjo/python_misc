@@ -110,6 +110,10 @@ Python 2.7 or 3.5 and later.
 #   from sync and archive command, or run using sudo in /etc.
 # - Wrap existing external commands with DSL. E.g. all saving default options
 #   for ag/ack searches in various scopes (locations).
+# - Generate new cli-based scripts.
+# - Automatically load sub-commands from a directory.
+# - Add/modify/delete sub-commands dynamically.
+# - Dynamically build and modify @Command specification for sub-commands.
 
 #===============================================================================
 class ArgumentSpec(object):
