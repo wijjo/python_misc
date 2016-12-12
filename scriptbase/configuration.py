@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import shutil
 import copy
 import yaml
 from . import console
@@ -72,18 +73,19 @@ class ConfigurationWriter(object):
         self.stream = stream
         self.comment_prefix = '%s ' % comment_prefix
         self.commented_out = commented_out
+        self.indent = ''
 
     def lines(self, is_comment, lines):
         comment_prefix = self.comment_prefix if self.commented_out or is_comment else ''
         for line in lines:
             if line:
-                self.stream.write(''.join([indent, comment_prefix, line]))
+                self.stream.write(''.join([self.indent, comment_prefix, line]))
             self.stream.write(os.linesep)
 
-    def code(*lines):
+    def code(self, *lines):
         self.lines(False, lines)
 
-    def comment(*lines):
+    def comment(self, *lines):
         self.lines(True, lines)
 
 #===============================================================================
@@ -120,11 +122,10 @@ class YAMLSyntax(SyntaxBase):
     comment_prefix = '#'
 
     def write_configuration(self, writer, specs, header_lines):
-        indent = ''
         writer.comment(*header_lines)
         writer.code('')
         for spec in self._iter_specs(specs):
-            indent = '  ' * spec.name.count('.')
+            writer.indent = '  ' * spec.name.count('.')
             if spec.desc:
                 writer.comment(spec.desc)
             value_type = type(spec.value)
@@ -142,7 +143,7 @@ class YAMLSyntax(SyntaxBase):
         def process_data(data, parent_key=''):
             if type(data) is dict:
                 for key, item in data.items():
-                    sub_key = '.'.join([parent_key, item.name])
+                    sub_key = '.'.join([parent_key, key])
                     process_data(item, sub_key)
             else:
                 # Only deal with the keys we know about.
@@ -204,17 +205,20 @@ class Config(object):
     def __init__(self, file_name, *specs, **kwargs):
         # Specification metadata is kept as full clone of the original tree of
         # nested specification items.
-        # Data is a dictionary mapping compound keys, e.g. "a.b.c", to values,
+        # "data" is a dictionary mapping compound keys, e.g. "a.b.c", to values,
         # where compound key segments correspond to nested specification item
         # names.
         # This arrangement allows for both direct access to data dictionary
         # values using the full compound keys or indirect, e.g. hierarchical,
         # access through the metadata tree.
+        # Keyword argumens:
+        #   - syntax: "yaml" or "python"
+        #   - locations: prioritized list of storage locations, default is ['.']
         self.file_name = file_name
         self.specs = copy.deepcopy(specs)
         self.spec_dict = {}
         self.data = ConfigDict()
-        bad_keys = sorted([key for key in kwargs.keys() if key != 'syntax'])
+        bad_keys = sorted([key for key in kwargs.keys() if key not in ('syntax', 'locations')])
         if bad_keys:
             raise ValueError('Unrecognized keyword argument(s) for Config: %s' % ' '.join(bad_keys))
         syntax_name = kwargs.get('syntax', 'yaml').lower()
@@ -223,7 +227,10 @@ class Config(object):
         elif syntax_name == 'python':
             self.syntax = PythonSyntax()
         else:
-            raise ValueError('Config syntax is not "yaml" or "python": %s' % syntax_name)
+            raise ValueError('Config "syntax" is not "yaml" or "python": %s' % syntax_name)
+        self.locations = [os.path.expanduser(os.path.expandvars(p)) for p in kwargs.get('locations', ['.'])]
+        if not self.locations:
+            raise ValueError('Config "locations" list may not be empty.')
         self._initialize(specs, None)
 
     def _initialize(self, specs, parent_key):
@@ -234,24 +241,52 @@ class Config(object):
             if spec.children:
                 self._initialize(spec.children, key)
 
-    def generate(self, commented_out=True):
+    def generate(self, commented_out=False, overwrite_existing=False):
+        succeeded = False
+        file_path = os.path.join(self.locations[0], self.file_name)
+        file_path_tmp = '%s.tmp' % file_path
+        file_path_orig = '%s.orig' % file_path
         try:
-            if os.path.exists(self.file_name):
-                console.abort('Configuration file already exists: %s' % self.file_name)
-            header = []
-            if commented_out:
-                header.append('Un-comment and edit below to change default configuration settings.')
-            else:
-                header.append('Edit below to change default configuration settings.')
-            header.append('File format: %s' % self.syntax.name)
-            with open(self.file_name, 'w') as f:
-                writer = ConfigurationWriter(f, self.syntax.comment_prefix, commented_out)
-                self.syntax.write_configuration(writer, self.spec_dict, header)
-            console.info('Configuration file saved: %s' % self.file_name)
-        except (IOError, OSError) as e:
-            console.abort('Unable to save configuration file: %s' % self.file_name, e)
+            try:
+                # Generate to highest priority location.
+                if os.path.exists(file_path):
+                    if not overwrite_existing:
+                        console.abort('Configuration file already exists: %s' % file_path)
+                    shutil.copy(file_path, file_path_orig)
+                    console.info('Existing file saved: %s' % file_path_orig)
+                header = []
+                if commented_out:
+                    header.append('Un-comment and edit below to change default configuration settings.')
+                else:
+                    header.append('Edit below to change default configuration settings.')
+                header.append('File format: %s' % self.syntax.name)
+                with open(file_path_tmp, 'w') as f:
+                    writer = ConfigurationWriter(f, self.syntax.comment_prefix, commented_out)
+                    self.syntax.write_configuration(writer, self.spec_dict, header)
+                shutil.move(file_path_tmp, file_path)
+                console.info('Configuration file generated: %s' % file_path)
+                succeeded = True
+            except (IOError, OSError) as e:
+                console.abort('Failed to save configuration file: %s' % file_path, e)
+        finally:
+            if os.path.exists(file_path_tmp):
+                try:
+                    os.remove(file_path_tmp)
+                except (IOError, OSError) as e:
+                    console.abort('Failed to remove temporary file: %s' % file_path_tmp, e)
+
+    def load(self):
+        loaded = False
+        for location in self.locations:
+            loaded = loaded or self._load_directory_config(location)
+        if console.is_verbose():
+            self.dump()
+        return loaded
 
     def load_for_paths(self, *paths):
+        """
+        deprecated - use load() with Config.locations member.
+        """
         config_dirs = []
         for path in flatten.flatten_strings(paths):
             if path:
@@ -277,7 +312,7 @@ class Config(object):
     def _load_directory_config(self, directory):
         path = os.path.expanduser(os.path.expandvars(os.path.join(directory, self.file_name)))
         if not os.path.isfile(path):
-            return
+            return False
         try:
             console.verbose_info('Reading configuration file: %s' % path)
             with open(path) as f:
@@ -285,3 +320,4 @@ class Config(object):
                 self.syntax.read_configuration(reader, self.spec_dict, self.data)
         except Exception as e:
             console.abort('Error reading configuration file: %s' % path, e)
+        return True

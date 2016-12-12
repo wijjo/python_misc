@@ -137,6 +137,10 @@ def shlex_quote(arg):
     return six.moves.shlex_quote(arg)
 
 
+def shell_command_string(*args):
+    return ' '.join([shlex_quote(a) for a in args])
+
+
 def import_module_path(module_source_path, module_name=None):
     """
     Import module using an explicit source file path.
