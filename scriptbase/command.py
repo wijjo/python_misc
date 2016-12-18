@@ -317,28 +317,87 @@ class RunnerCommandArguments(dict):
         self[name] = value
 
 
-class Runner:
-    def __init__(self, cmdargs, symbols={}):
+class Runner(object):
+
+    class PluginNamespace(object):
+        def __init__(self, symbols, *plugin_directories):
+            # Symbols are used to expand directory string templates.
+            self._symbols = symbols
+            # Loaded just in time.
+            self._modules = None
+            # List of directories
+            self._plugin_directories = [
+                os.path.join('~', '.%(progname)s.d'),
+                '.%(progname)s.d)',
+                os.path.join('%(progdir)', '%(progname)s.d'),
+            ]
+        def __getattr__(self, name):
+            if self._modules is None:
+                self._load_modules()
+            return self._modules.get(name, None)
+        def _load_modules(self):
+            self._modules = {}
+            for pd_raw in self._plugin_directories:
+                pd = os.path.realpath(os.path.expanduser(os.path.expandvars(pd_raw % self._symbols())))
+                if os.path.isdir(pd):
+
+    def __init__(self, cmdargs, progname=None, progdir=None, symbols={}, enable_plugins=False):
         self.cmdargs = cmdargs
-        self.symbols = {}
+        if progname:
+            self.progname = progname
+        elif cmdargs:
+            self.progname = os.path.basename(cmdargs[0])
+        else:
+            self.progname = os.path.basename(sys.argv[0])
+        if progdir:
+            self.progdir = progdir
+        elif cmdargs:
+            self.progdir = os.path.realpath(os.path.dirname(cmdargs[0]))
+        else:
+            self.progdir = os.path.realpath(os.path.dirname(sys.argv[0]))
+        # Use update() to add symbols.
+        self.symbols = symbols
+        self.set_symbols(progname=self.progname, progdir=self.progdir)
+        # Plugin modules and their symbols are accessible through the "plugin"
+        # namespace as <runner>.plugin.<plugin_name>.<plugin_symbol>.
+        if enable_plugins:
+            self.plugin = Runner.PluginNamespace(self.symbols,
+                                os.path.join('~', '.%(progname)s.d'),
+                                '.%(progname)s.d)',
+                                os.path.join('%(progdir)', '%(progname)s.d'))
+        else:
+            self.plugin = None
+
     def set_symbols(self, **symbols):
-        for k in symbols:
-            self.symbols[k] = symbols[k]
+        """
+        Set key/values into a built-in dictionary that can be used for string
+        expansion in expand().  Note that a None value removes any associated
+        item rather than setting its value to None.
+        """
+        for key in symbols:
+            value = symbols[key]
+            if value is not None:
+                self.symbols[key] = value
+            elif key in self.symbols:
+                del self.symbols[key]
+
     def shell(self, cmdline, abort = True):
         def checker(retcode, cmdline):
             if retcode != 0:
-                return 'Command failed with return code %d: %s' % (retcode, cmdline)
+                return 'Shell command failed with return code %d: %s' % (retcode, cmdline)
         cmdlinex = self.expand(cmdline)
         if self.cmdargs.dryrun:
             sys.stdout.write('%s\n' % cmdlinex)
             return 0
         return _run_function('shell', checker, self.cmdargs, os.system, abort, cmdlinex)
+
     def chdir(self, dir):
         dirx = self.expand(dir)
         if self.cmdargs.dryrun:
             sys.stdout.write('cd "%s"\n' % dirx)
         else:
             _run_function('chdir', None, self.cmdargs, os.chdir, True, dirx)
+
     def check_directory(self, path, exists):
         pathx = self.expand(path)
         if self.cmdargs.dryrun:
@@ -350,6 +409,7 @@ class Runner:
                 if not exists and actual_exists:
                     return 'Directory "%s" already exists' % path
             _run_function('check_directory', checker, self.cmdargs, os.path.exists, True, pathx)
+
     def expand(self, s):
         try:
             return os.path.expanduser(os.path.expandvars(s)) % self.symbols

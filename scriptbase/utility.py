@@ -17,6 +17,7 @@ import os
 import shutil
 import re
 import inspect
+import glob
 
 from . import console
 
@@ -157,3 +158,12 @@ def import_module_path(module_source_path, module_name=None):
         import imp
         module = imp.load_source(module_name, module_source_path)
     return module
+
+
+def import_modules_from_directory(dir_path):
+    module_paths = sorted([p for p in glob.glob(os.path.join(dir_path, '*.py'))])
+    modules = DictObject()
+    for module_path in module_paths:
+        module_name = os.path.splitext(os.path.basename(module_path))[0]
+        modules[module_name] = import_module_path(module_path, module_name=module_name)
+    return modules

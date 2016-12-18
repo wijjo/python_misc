@@ -33,6 +33,13 @@ class ConfigSpec(object):
         self.desc = desc
         self.children = children
 
+    def __str__(self):
+        return 'ConfigSpec(name="%s", value=%s, desc="%s", children=%d)' % (
+                    self.name,
+                    '"%s"' % self.value if type(self.value) is str else str(self.value),
+                    self.desc,
+                    len(self.children))
+
 
 #===============================================================================
 class ConfigDict(dict):
@@ -58,7 +65,7 @@ class SyntaxBase(object):
     @classmethod
     def _iter_specs(cls, specs):
         for key in sorted(specs.keys()):
-            yield specs[key]
+            yield key, specs[key]
 
 
 #===============================================================================
@@ -121,11 +128,13 @@ class YAMLSyntax(SyntaxBase):
     name = 'YAML'
     comment_prefix = '#'
 
-    def write_configuration(self, writer, specs, header_lines):
+    def write_configuration(self, writer, spec_dict, header_lines):
         writer.comment(*header_lines)
-        writer.code('')
-        for spec in self._iter_specs(specs):
-            writer.indent = '  ' * spec.name.count('.')
+        for key, spec in self._iter_specs(spec_dict):
+            indent_level = key.count('.')
+            writer.indent = '  ' * indent_level
+            if indent_level == 0:
+                writer.code('')
             if spec.desc:
                 writer.comment(spec.desc)
             value_type = type(spec.value)
@@ -137,9 +146,12 @@ class YAMLSyntax(SyntaxBase):
                 else:
                     writer.code('  -')
             else:
-                writer.code('%s: %s' % (spec.name, str(spec.value)))
+                if spec.value is None:
+                    writer.code('%s:' % spec.name)
+                else:
+                    writer.code('%s: %s' % (spec.name, str(spec.value)))
 
-    def read_configuration(self, reader, specs, config):
+    def read_configuration(self, reader, spec_dict, config):
         def process_data(data, parent_key=''):
             if type(data) is dict:
                 for key, item in data.items():
@@ -148,7 +160,7 @@ class YAMLSyntax(SyntaxBase):
             else:
                 # Only deal with the keys we know about.
                 #TODO: Check other things?
-                if parent_key in specs:
+                if parent_key in spec_dict:
                     config[parent_key] = item
         data = yaml.load(reader.read_all())
         process_data(data, '')
@@ -165,9 +177,9 @@ class PythonSyntax(SyntaxBase):
     name = 'Python'
     comment_prefix = '#'
 
-    def write_configuration(self, writer, specs, header_lines):
+    def write_configuration(self, writer, spec_dict, header_lines):
         writer.comment(*header_lines)
-        for spec in self._iter_specs(specs):
+        for key, spec in self._iter_specs(spec_dict):
             writer.code('')
             if spec.desc:
                 writer.comment(spec.desc)
@@ -181,10 +193,10 @@ class PythonSyntax(SyntaxBase):
         # symbols from local Python code.
         globals_tmp = {}
         locals_tmp = {}
-        for spec in self._iter_specs(spec_dict):
+        for key, spec in self._iter_specs(spec_dict):
             locals_tmp[spec.name] = config.get(spec.name, None)
         exec(reader.read_all(), globals_tmp, locals_tmp)
-        for spec in self._iter_specs(spec_dict):
+        for key, spec in self._iter_specs(spec_dict):
             config[spec.name] = locals_tmp[spec.name]
 
     @classmethod
@@ -192,7 +204,7 @@ class PythonSyntax(SyntaxBase):
         for spec in SyntaxBase._iter_specs(spec_dict):
             if key != spec.name:
                 raise ValueError("Python configurations do not support multiple levels")
-            yield spec
+            yield key, spec
 
 
 #===============================================================================

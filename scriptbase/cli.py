@@ -418,7 +418,7 @@ class Runner(command.Runner):
             sys.exit(255)
 
 #===============================================================================
-def main(command_line=sys.argv, runner_type=Runner):
+def main(command_line=sys.argv, runner_type=Runner, program_name=None):
     """
     Main function to parse and validate the arguments and options, and then
     invoke the assigned command function.

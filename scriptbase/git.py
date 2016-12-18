@@ -303,8 +303,8 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
 
 
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
-    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
-                            branch=branch)
+    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner.set_symbols(branch=branch)
     remote_exists = False
     if not dryrun:
         if url is None:
