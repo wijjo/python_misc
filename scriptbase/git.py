@@ -292,8 +292,8 @@ def is_git_version_newer(min_version):
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):
     if ancestor is None:
         ancestor = 'master'
-    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose),
-                            branch=branch, ancestor=ancestor)
+    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner.set_symbols(branch=branch, ancestor=ancestor)
     # Create local branch.
     if branch != 'master':
         runner.shell('git branch %(branch)s origin/%(ancestor)s')

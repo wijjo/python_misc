@@ -318,12 +318,12 @@ class RunnerCommandArguments(dict):
 
 
 class Runner:
-    def __init__(self, cmdargs, **kwargs):
+    def __init__(self, cmdargs, symbols={}):
         self.cmdargs = cmdargs
-        self.kwargs = kwargs
-    def update(self, **kwargs):
-        for k in kwargs:
-            self.kwargs[k] = kwargs[k]
+        self.symbols = {}
+    def set_symbols(self, **symbols):
+        for k in symbols:
+            self.symbols[k] = symbols[k]
     def shell(self, cmdline, abort = True):
         def checker(retcode, cmdline):
             if retcode != 0:
@@ -352,6 +352,6 @@ class Runner:
             _run_function('check_directory', checker, self.cmdargs, os.path.exists, True, pathx)
     def expand(self, s):
         try:
-            return os.path.expanduser(os.path.expandvars(s)) % self.kwargs
+            return os.path.expanduser(os.path.expandvars(s)) % self.symbols
         except ValueError as e:
             console.abort(e, s)
