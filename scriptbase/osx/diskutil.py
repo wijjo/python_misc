@@ -28,8 +28,6 @@ except ImportError:
 from .. import command
 from .. import console
 
-LIST_PATH = os.path.expanduser('~/.bcvols')
-
 
 class DUCommand(command.Command):
     """
@@ -231,43 +229,44 @@ class DUVolume(object):
 
 class CSVolumeManager(DUVolumeManager):
 
-    def __init__(self, dryrun=False):
+    def __init__(self, list_path, dryrun=False):
+        self.list_path = list_path
         def get_password():
             return getpass.getpass('Password: ')
         DUVolumeManager.__init__(self, get_password=get_password, dryrun=dryrun)
 
     def cs_generate_list_file(self):
-        console.info('"%s" does not exist.' % LIST_PATH,
+        console.info('"%s" does not exist.' % self.list_path,
                      'Generated a new file with information about all volumes.',
                      'Edit it to specify the volume ID list to use.')
         volset = self.get_complete_volume_set()
         try:
-            with open(LIST_PATH, 'w') as f:
+            with open(self.list_path, 'w') as f:
                 for volume in volset:
                     f.write('# name=%s size=%d id=%s\n# %s\n'
                                 % (volume.name, volume.size, volume.volid, volume.volid))
         except (IOError, OSError) as e:
-            console.abort('Failed to generate volume ID list file "%s".' % LIST_PATH, e)
+            console.abort('Failed to generate volume ID list file "%s".' % self.list_path, e)
 
     def cs_volids(self):
-        if not os.path.exists(LIST_PATH):
+        if not os.path.exists(self.list_path):
             self.cs_generate_list_file()
             sys.exit(1)
         volids = []
         try:
-            with open(LIST_PATH) as f:
+            with open(self.list_path) as f:
                 for line in f:
                     s = line.strip()
                     if not s.startswith('#'):
                         volids.append(s)
         except (IOError, OSError) as e:
-            console.abort('Failed to read volume ID list file "%s".' % LIST_PATH, e)
+            console.abort('Failed to read volume ID list file "%s".' % self.list_path, e)
         return volids
 
     def cs_mount(self):
         volids = self.cs_volids()
         if not volids:
             console.abort('There are no volumes to mount.',
-                          'Make sure at least one is specified in "%s".' % LIST_PATH)
+                          'Make sure at least one is specified in "%s".' % self.list_path)
         volset = self.get_volume_set(volids)
         self.mount_volume_set(volset)

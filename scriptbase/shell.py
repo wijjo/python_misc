@@ -43,7 +43,7 @@ def find_executable(*names):
     for name in names:
         path = find_in_path(env_path, name, executable=True)
         if path:
-            return path
+            return os.path.realpath(path)
     return None
 
 

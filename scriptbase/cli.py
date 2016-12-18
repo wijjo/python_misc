@@ -302,6 +302,14 @@ class Verb(object):
             self.child_verbs = sorted(self.child_verbs, key=lambda x: x.name)
             self.dirty = False
 
+    class CustomArgumentParser(argparse.ArgumentParser):
+        def error(self, message):
+            if message:
+                console.error(message)
+            self.print_help(sys.stderr)
+            sys.stderr.write(os.linesep)
+            self.exit(255)
+
     @classmethod
     def get_parser(cls, description, add_arg_specs):
         """
@@ -313,7 +321,7 @@ class Verb(object):
         cls.root.description = description
         if add_arg_specs:
             cls.root.arg_specs.extend(add_arg_specs)
-        cls.parser = argparse.ArgumentParser(
+        cls.parser = Verb.CustomArgumentParser(
             description='  %s' % '\n  '.join(cls._description_lines()),
             formatter_class=argparse.RawDescriptionHelpFormatter)
         cls.root.configure_parser(cls.parser)
