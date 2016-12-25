@@ -340,6 +340,8 @@ class Runner(object):
             for pd_raw in self._plugin_directories:
                 pd = os.path.realpath(os.path.expanduser(os.path.expandvars(pd_raw % self._symbols())))
                 if os.path.isdir(pd):
+                    #TODO
+                    pass
 
     def __init__(self, cmdargs, progname=None, progdir=None, symbols={}, enable_plugins=False):
         self.cmdargs = cmdargs
