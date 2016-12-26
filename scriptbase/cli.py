@@ -67,18 +67,18 @@ Sample code::
       cli.Integer('timeout', 'time-out in seconds', '--timeout', default=TIMEOUT)])
   def main(runner):
       global TIMEOUT
-      TIMEOUT = runner.cmdargs.timeout
+      TIMEOUT = runner.arg.timeout
 
   @cli.Command(description='download page', args=[
       cli.String('url', 'URL of page to download'),
       cli.Boolean('pdf', 'convert to a PDF', '--pdf')])
   def download(runner):
-      if runner.cmdargs.dryrun:
-          print('Download(dryrun): %s' % runner.cmdargs.url)
-      elif runner.cmdargs.pdf:
-          print('Download(PDF): %s' % runner.cmdargs.url)
+      if runner.arg.dryrun:
+          print('Download(dryrun): %s' % runner.arg.url)
+      elif runner.arg.pdf:
+          print('Download(PDF): %s' % runner.arg.url)
       else:
-          print('Download(HTML): %s' % runner.cmdargs.url)
+          print('Download(HTML): %s' % runner.arg.url)
 
   @cli.Command(description='display various statistics', args=[
       cli.String('url', 'URL of page to download')])
@@ -87,11 +87,11 @@ Sample code::
 
   @cli.Command(description='display route to host', parent=show)
   def route(runner):
-      print('show_route(%s)' % runner.cmdargs.url)
+      print('show_route(%s)' % runner.arg.url)
 
   @cli.Command(description='display latency to host', parent=show)
   def latency(runner):
-      print('show_latency(%s)' % runner.cmdargs.url)
+      print('show_latency(%s)' % runner.arg.url)
 
   if __name__ == '__main__':
       cli.main()
@@ -179,7 +179,7 @@ class Verb(object):
         def __init__(self, parsers_by_name):
             self.parsers_by_name = parsers_by_name
         def __call__(self, runner):
-            names = runner.cmdargs.verbs
+            names = runner.arg.verbs
             if not names:
                 names = ['_']
             i = 0
@@ -372,6 +372,25 @@ class Command(Verb):
     def __call__(self, function):
         return self.set_function(function)
 
+
+#===============================================================================
+class Runner(command.Runner):
+#===============================================================================
+    def _invoke_implementation(self, name, func):
+        try:
+            func(self)
+        except KeyboardInterrupt:
+            sys.exit(255)
+        except Exception as e:
+            console.error('%s traceback (most recent call last)' % name)
+            (etype, value, tb) = sys.exc_info()
+            for line in traceback.format_list(traceback.extract_tb(tb)[1:]):
+                console.error(line.rstrip())
+            exc_lines = [line.rstrip() for line in traceback.format_exception_only(etype, value)]
+            console.error(*exc_lines)
+            sys.exit(255)
+
+
 #===============================================================================
 class Main(object):
     """
@@ -387,12 +406,20 @@ class Main(object):
                        args=[],
                        support_verbose=False,
                        support_dryrun=False,
-                       support_pause=False):
+                       support_pause=False,
+                       runner_type=Runner,
+                       support_plugins=False,
+                       program_name=None,
+                       program_directory=None):
         self.description = description
         self.arg_specs = args
         self.support_verbose = support_verbose
         self.support_dryrun = support_dryrun
         self.support_pause = support_pause
+        self.runner_type = runner_type
+        self.support_plugins = support_plugins
+        self.program_name = program_name
+        self.program_directory = program_directory
         self.function = None
 
     def __call__(self, function):
@@ -401,21 +428,6 @@ class Main(object):
         self.function = function
         Main.instance = self
 
-#===============================================================================
-class Runner(command.Runner):
-    def _invoke_implementation(self, name, func):
-        try:
-            func(self)
-        except KeyboardInterrupt:
-            sys.exit(255)
-        except Exception as e:
-            console.error('%s traceback (most recent call last)' % name)
-            (etype, value, tb) = sys.exc_info()
-            for line in traceback.format_list(traceback.extract_tb(tb)[1:]):
-                console.error(line.rstrip())
-            exc_lines = [line.rstrip() for line in traceback.format_exception_only(etype, value)]
-            console.error(*exc_lines)
-            sys.exit(255)
 
 #===============================================================================
 def _discover_commands(command_path):
@@ -444,7 +456,7 @@ def _discover_commands(command_path):
                 raise
 
 #===============================================================================
-def main(command_line=sys.argv, runner_type=Runner):
+def main(command_line=sys.argv):
     """
     Main function to parse and validate the arguments and options, and then
     invoke the assigned command function.
@@ -466,12 +478,19 @@ def main(command_line=sys.argv, runner_type=Runner):
     if not Verb.root:
         console.abort("No @Command's were registered.")
     parser = Verb.get_parser(Main.instance.description, add_arg_specs)
-    cmdargs = parser.parse_args(args=command_line[1:])
+    command_args = parser.parse_args(args=command_line[1:])
     if Main.instance.support_verbose:
-        console.set_verbose(cmdargs.verbose)
-    runner = runner_type(cmdargs, progname=os.path.basename(command_line[0]))
+        console.set_verbose(command_args.verbose)
+    if not Main.instance.program_name:
+        Main.instance.program_name = os.path.basename(command_line[0])
+    if not Main.instance.program_directory:
+        Main.instance.program_directory = os.path.dirname(command_line[0])
+    runner = Main.instance.runner_type(command_args,
+                                       program_name=Main.instance.program_name,
+                                       program_directory=Main.instance.program_directory,
+                                       support_plugins=Main.instance.support_plugins)
     # Invoke @Main function (frequently does little or nothing).
     runner._invoke_implementation('@Main', Main.instance.function)
     # Invoke @Command function and return the exit code.
-    if hasattr(runner.cmdargs, 'func'):
-        return runner._invoke_implementation('@Command[%s]' % cmdargs.subcommand, runner.cmdargs.func)
+    if hasattr(runner.arg, 'func'):
+        return runner._invoke_implementation('@Command[%s]' % command_args.subcommand, runner.arg.func)

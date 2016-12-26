@@ -32,18 +32,18 @@ TIMEOUT = 60
     cli.Integer('timeout', 'time-out in seconds', '--timeout', default=TIMEOUT)])
 def main(runner):
     global TIMEOUT
-    TIMEOUT = runner.cmdargs.timeout
+    TIMEOUT = runner.arg.timeout
 
 @cli.Command(description='download page', args=[
     cli.String('url', 'URL of page to download'),
     cli.Boolean('pdf', 'convert to a PDF', '--pdf')])
 def download(runner):
-    if runner.cmdargs.dryrun:
-        print('Download(dryrun): %s' % runner.cmdargs.url)
-    elif runner.cmdargs.pdf:
-        print('Download(PDF): %s' % runner.cmdargs.url)
+    if runner.arg.dryrun:
+        print('Download(dryrun): %s' % runner.arg.url)
+    elif runner.arg.pdf:
+        print('Download(PDF): %s' % runner.arg.url)
     else:
-        print('Download(HTML): %s' % runner.cmdargs.url)
+        print('Download(HTML): %s' % runner.arg.url)
 
 @cli.Command(description='display various statistics', args=[
     cli.String('url', 'URL of page to download')])
@@ -52,11 +52,11 @@ def show(runner):
 
 @cli.Command(description='display route to host', parent=show)
 def route(runner):
-    print('show_route(%s)' % runner.cmdargs.url)
+    print('show_route(%s)' % runner.arg.url)
 
 @cli.Command(description='display latency to host', parent=show)
 def latency(runner):
-    print('show_latency(%s)' % runner.cmdargs.url)
+    print('show_latency(%s)' % runner.arg.url)
 
 class TestStream(object):
     def __init__(self, tag=''):

@@ -275,7 +275,7 @@ class Command(object):
         return input_source
 
 
-def _run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
+def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
     def arg_string():
         sargs = str(args)
         if sargs[-2] == ',':
@@ -285,9 +285,9 @@ def _run_function(tag, checker, cmdargs, func, abort, *args, **kwargs):
         else:
             skwargs = ''
         return '%s%s%s' % (tag, sargs, skwargs)
-    if cmdargs.verbose:
+    if command_args.verbose:
         console.display_messages(arg_string(), tag='TRACE')
-    elif cmdargs.pause:
+    elif command_args.pause:
         sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % arg_string())
         sys.stdin.readline()
     ret = -1
@@ -333,9 +333,9 @@ class Runner(object):
             self._modules = None
             # List of directories
             self._plugin_directories = [
-                os.path.join('~', '.%(progname)s.d'),
-                '.%(progname)s.d)',
-                os.path.join('%(progdir)', '%(progname)s.d'),
+                os.path.join('~', '.%(program_name)s.d'),
+                '.%(program_name)s.d)',
+                os.path.join('%(program_directory)', '%(program_name)s.d'),
             ]
 
         def __getattr__(self, name):
@@ -355,41 +355,53 @@ class Runner(object):
     class VarNamespace(utility.DictObject):
         pass
 
-    def __init__(self, cmdargs, progname=None, progdir=None, var={}, enable_plugins=False):
-        self.cmdargs = cmdargs
-        self.progname = progname if progname else os.path.basename(sys.argv[0])
-        self.progdir = progdir if progdir else os.path.realpath(os.path.dirname(sys.argv[0]))
+    def __init__(self, command_args,
+                 program_name=None,
+                 program_directory=None,
+                 support_plugins=False,
+                 var={}):
+        self.arg = command_args
+        self.program_name = program_name
+        self.program_directory = program_directory
+        # Default program name and directory are based on the command line arguments.
+        if not self.program_name:
+            self.program_name = os.path.basename(command_args[0])
+        if not self.program_directory:
+            self.program_directory = os.path.dirname(command_args[0])
         #=== Special namespaces - "var" and "mod"
         # Application-specific variables are accessible through the "var" namespace.
-        self.var = Runner.VarNamespace(progname=self.progname, progdir=self.progdir, **var)
+        self.var = Runner.VarNamespace(
+            program_name=self.program_name,
+            program_directory=self.program_directory,
+            **var)
         # Plugin modules and their contents are accessible through the "mod"
         # namespace as <runner>.mod.<plugin_name>.<plugin_symbol>.
-        if enable_plugins:
+        if support_plugins:
             self.mod = Runner.PluginModuleNamespace(self.var,
-                                os.path.join('~', '.%(progname)s.d'),
-                                '.%(progname)s.d)',
-                                os.path.join('%(progdir)', '%(progname)s.d'))
+                                os.path.join('~', '.%(program_name)s.d'),
+                                '.%(program_name)s.d)',
+                                os.path.join('%(program_directory)', '%(program_name)s.d'))
 
     def shell(self, cmdline, abort = True):
         def checker(retcode, cmdline):
             if retcode != 0:
                 return 'Shell command failed with return code %d: %s' % (retcode, cmdline)
         cmdlinex = self.expand(cmdline)
-        if self.cmdargs.dryrun:
+        if self.arg.dryrun:
             sys.stdout.write('%s\n' % cmdlinex)
             return 0
-        return _run_function('shell', checker, self.cmdargs, os.system, abort, cmdlinex)
+        return _run_function('shell', checker, self.arg, os.system, abort, cmdlinex)
 
     def chdir(self, dir):
         dirx = self.expand(dir)
-        if self.cmdargs.dryrun:
+        if self.arg.dryrun:
             sys.stdout.write('cd "%s"\n' % dirx)
         else:
-            _run_function('chdir', None, self.cmdargs, os.chdir, True, dirx)
+            _run_function('chdir', None, self.arg, os.chdir, True, dirx)
 
     def check_directory(self, path, exists):
         pathx = self.expand(path)
-        if self.cmdargs.dryrun:
+        if self.arg.dryrun:
             sys.stdout.write('test -d "%s" || exit 1\n' % pathx)
         else:
             def checker(actual_exists, path):
@@ -397,7 +409,7 @@ class Runner(object):
                     return 'Directory "%s" does not exist' % path
                 if not exists and actual_exists:
                     return 'Directory "%s" already exists' % path
-            _run_function('check_directory', checker, self.cmdargs, os.path.exists, True, pathx)
+            _run_function('check_directory', checker, self.arg, os.path.exists, True, pathx)
 
     def expand(self, s):
         try:
