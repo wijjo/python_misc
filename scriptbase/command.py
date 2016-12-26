@@ -318,11 +318,17 @@ class RunnerCommandArguments(dict):
 
 
 class Runner(object):
+    """
+    Runner objects are passed by the "cli" module to all call-back functions,
+    but can also be used independently for the plugin module loading and
+    namespace, command execution or template expansion functionality.
+    """
 
-    class PluginNamespace(object):
-        def __init__(self, symbols, *plugin_directories):
+    class PluginModuleNamespace(object):
+
+        def __init__(self, var, *plugin_directories):
             # Symbols are used to expand directory string templates.
-            self._symbols = symbols
+            self._var = var
             # Loaded just in time.
             self._modules = None
             # List of directories
@@ -331,57 +337,38 @@ class Runner(object):
                 '.%(progname)s.d)',
                 os.path.join('%(progdir)', '%(progname)s.d'),
             ]
+
         def __getattr__(self, name):
             if self._modules is None:
                 self._load_modules()
             return self._modules.get(name, None)
+
         def _load_modules(self):
             self._modules = {}
             for pd_raw in self._plugin_directories:
-                pd = os.path.realpath(os.path.expanduser(os.path.expandvars(pd_raw % self._symbols())))
+                pd = os.path.realpath(os.path.expanduser(os.path.expandvars(pd_raw % self._var())))
                 if os.path.isdir(pd):
-                    #TODO
-                    pass
+                    modules = import_modules_from_directory(pd)
+                    if modules:
+                        self.modules.update(**modules)
 
-    def __init__(self, cmdargs, progname=None, progdir=None, symbols={}, enable_plugins=False):
+    class VarNamespace(utility.DictObject):
+        pass
+
+    def __init__(self, cmdargs, progname=None, progdir=None, var={}, enable_plugins=False):
         self.cmdargs = cmdargs
-        if progname:
-            self.progname = progname
-        elif cmdargs:
-            self.progname = os.path.basename(cmdargs[0])
-        else:
-            self.progname = os.path.basename(sys.argv[0])
-        if progdir:
-            self.progdir = progdir
-        elif cmdargs:
-            self.progdir = os.path.realpath(os.path.dirname(cmdargs[0]))
-        else:
-            self.progdir = os.path.realpath(os.path.dirname(sys.argv[0]))
-        # Use update() to add symbols.
-        self.symbols = symbols
-        self.set_symbols(progname=self.progname, progdir=self.progdir)
-        # Plugin modules and their symbols are accessible through the "plugin"
-        # namespace as <runner>.plugin.<plugin_name>.<plugin_symbol>.
+        self.progname = progname if progname else os.path.basename(sys.argv[0])
+        self.progdir = progdir if progdir else os.path.realpath(os.path.dirname(sys.argv[0]))
+        #=== Special namespaces - "var" and "mod"
+        # Application-specific variables are accessible through the "var" namespace.
+        self.var = Runner.VarNamespace(progname=self.progname, progdir=self.progdir, **var)
+        # Plugin modules and their contents are accessible through the "mod"
+        # namespace as <runner>.mod.<plugin_name>.<plugin_symbol>.
         if enable_plugins:
-            self.plugin = Runner.PluginNamespace(self.symbols,
+            self.mod = Runner.PluginModuleNamespace(self.var,
                                 os.path.join('~', '.%(progname)s.d'),
                                 '.%(progname)s.d)',
                                 os.path.join('%(progdir)', '%(progname)s.d'))
-        else:
-            self.plugin = None
-
-    def set_symbols(self, **symbols):
-        """
-        Set key/values into a built-in dictionary that can be used for string
-        expansion in expand().  Note that a None value removes any associated
-        item rather than setting its value to None.
-        """
-        for key in symbols:
-            value = symbols[key]
-            if value is not None:
-                self.symbols[key] = value
-            elif key in self.symbols:
-                del self.symbols[key]
 
     def shell(self, cmdline, abort = True):
         def checker(retcode, cmdline):

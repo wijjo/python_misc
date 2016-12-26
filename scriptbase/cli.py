@@ -418,39 +418,6 @@ class Runner(command.Runner):
             sys.exit(255)
 
 #===============================================================================
-def main(command_line=sys.argv, runner_type=Runner, program_name=None):
-    """
-    Main function to parse and validate the arguments and options, and then
-    invoke the assigned command function.
-
-    Returns any result provided by the command function, which should be a
-    system exit code, i.e. 0 for success or non-zero for failure.
-    """
-#===============================================================================
-    _discover_commands(command_line[0])
-    if not Main.instance:
-        console.abort('No @Main() was found.')
-    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
-    if Main.instance.support_verbose:
-        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
-    if Main.instance.support_dryrun:
-        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
-    if Main.instance.support_pause:
-        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
-    if not Verb.root:
-        console.abort("No @Command's were registered.")
-    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
-    cmdargs = parser.parse_args(args=command_line[1:])
-    if Main.instance.support_verbose:
-        console.set_verbose(cmdargs.verbose)
-    runner = runner_type(cmdargs)
-    # Invoke @Main function (frequently does little or nothing).
-    runner._invoke_implementation('@Main', Main.instance.function)
-    # Invoke @Command function and return the exit code.
-    if hasattr(runner.cmdargs, 'func'):
-        return runner._invoke_implementation('@Command[%s]' % cmdargs.subcommand, runner.cmdargs.func)
-
-#===============================================================================
 def _discover_commands(command_path):
     """
     Import all *.py files from <name>.cli in a subdirectory of the program's
@@ -475,3 +442,36 @@ def _discover_commands(command_path):
             except Exception as e:
                 console.error('Exception while executing CLI source file: %s' % path)
                 raise
+
+#===============================================================================
+def main(command_line=sys.argv, runner_type=Runner):
+    """
+    Main function to parse and validate the arguments and options, and then
+    invoke the assigned command function.
+
+    Returns any result provided by the command function, which should be a
+    system exit code, i.e. 0 for success or non-zero for failure.
+    """
+#===============================================================================
+    _discover_commands(command_line[0])
+    if not Main.instance:
+        console.abort('No @Main() was found.')
+    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
+    if Main.instance.support_verbose:
+        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
+    if Main.instance.support_dryrun:
+        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
+    if Main.instance.support_pause:
+        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
+    if not Verb.root:
+        console.abort("No @Command's were registered.")
+    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
+    cmdargs = parser.parse_args(args=command_line[1:])
+    if Main.instance.support_verbose:
+        console.set_verbose(cmdargs.verbose)
+    runner = runner_type(cmdargs, progname=os.path.basename(command_line[0]))
+    # Invoke @Main function (frequently does little or nothing).
+    runner._invoke_implementation('@Main', Main.instance.function)
+    # Invoke @Command function and return the exit code.
+    if hasattr(runner.cmdargs, 'func'):
+        return runner._invoke_implementation('@Command[%s]' % cmdargs.subcommand, runner.cmdargs.func)

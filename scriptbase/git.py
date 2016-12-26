@@ -290,10 +290,9 @@ def is_git_version_newer(min_version):
 
 
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):
-    if ancestor is None:
-        ancestor = 'master'
     runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
-    runner.set_symbols(branch=branch, ancestor=ancestor)
+    runner.var.branch = branch
+    runner.var.ancestor = ancestor if ancestor else 'master'
     # Create local branch.
     if branch != 'master':
         runner.shell('git branch %(branch)s origin/%(ancestor)s')
@@ -304,7 +303,7 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
 
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
     runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
-    runner.set_symbols(branch=branch)
+    runner.var.branch = branch
     remote_exists = False
     if not dryrun:
         if url is None:
