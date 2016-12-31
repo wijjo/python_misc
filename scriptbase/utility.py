@@ -149,14 +149,20 @@ def import_module_path(module_source_path, module_name=None):
     if not module_name:
         module_name = '_%s' % '_'.join([s.replace('.', '_') for s in os.path.split(module_source_path)])
     # http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
-    if sys.version_info.major < 3 or (sys.version_info.major == 3 and sys.version_info.minor < 5):
-        import importlib.util
-        module_spec = importlib.util.spec_from_file_location(module_name, module_source_path)
-        module = importlib.util.module_from_spec(module_spec)
-        module_spec.loader.exec_module(module)
-    else:
+    if sys.version_info.major == 2:
         import imp
         module = imp.load_source(module_name, module_source_path)
+    elif sys.version_info.major == 3:
+        if sys.version_info.minor >= 5:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(module_name, module_source_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        else:
+            from importlib.machinery import SourceFileLoader
+            module = SourceFileLoader(module_name, module_source_path).load_module()
+    else:
+        console.abort('Python %d is not supported.' % sys.version_info.major)
     return module
 
 

@@ -23,6 +23,7 @@ import traceback
 from . import command
 from . import utility
 from . import console
+from .configuration import Config
 
 try:
     import argparse
@@ -211,8 +212,9 @@ class Verb(object):
           args         argument/option specifications list
           aliases      alias list, i.e. alternative names, for this verb
         """
-        if not is_root and not Verb.root:
-            Verb.root = Verb(is_root=True)
+        # Set the root if missing, whether or not the app provides one explicitly.
+        if not Verb.root:
+            Verb.root = self if is_root else Verb(is_root=True)
         self.name = name
         if description is None:
             self.description = '(no description provided)'
@@ -313,7 +315,7 @@ class Verb(object):
     @classmethod
     def get_parser(cls, description, add_arg_specs):
         """
-        Parse all arguments and options.
+        Provide an argument/option parser.
         """
         # Support tests with multiple command lines run against one specification.
         if cls.parser:
@@ -372,31 +374,16 @@ class Command(Verb):
     def __call__(self, function):
         return self.set_function(function)
 
-
-#===============================================================================
-class Runner(command.Runner):
-#===============================================================================
-    def _invoke_implementation(self, name, func):
-        try:
-            func(self)
-        except KeyboardInterrupt:
-            sys.exit(255)
-        except Exception as e:
-            console.error('%s traceback (most recent call last)' % name)
-            (etype, value, tb) = sys.exc_info()
-            for line in traceback.format_list(traceback.extract_tb(tb)[1:]):
-                console.error(line.rstrip())
-            exc_lines = [line.rstrip() for line in traceback.format_exception_only(etype, value)]
-            console.error(*exc_lines)
-            sys.exit(255)
-
-
 #===============================================================================
 class Main(object):
     """
     Function decorator class used to declare the @Main function that declares
     the top level CLI arguments and options, specifies other options that
     affect how the CLI is built, and performs other optional setup operations.
+
+    Note that support_discovery defaults to False, so that commands are not
+    discoverable without @Main being pre-loaded. This assures that command
+    directory names follow any program_name override in the @Main decorator.
     """
 #===============================================================================
 
@@ -407,20 +394,24 @@ class Main(object):
                        support_verbose=False,
                        support_dryrun=False,
                        support_pause=False,
-                       runner_type=Runner,
+                       support_discovery=False,
                        support_plugins=False,
+                       runner_type=command.Runner,
                        program_name=None,
-                       program_directory=None):
+                       program_directory=None,
+                       configuration=None):
         self.description = description
         self.arg_specs = args
         self.support_verbose = support_verbose
         self.support_dryrun = support_dryrun
         self.support_pause = support_pause
         self.runner_type = runner_type
+        self.support_discovery = support_discovery
         self.support_plugins = support_plugins
         self.program_name = program_name
         self.program_directory = program_directory
         self.function = None
+        self.configuration = configuration
 
     def __call__(self, function):
         if Main.instance:
@@ -428,35 +419,136 @@ class Main(object):
         self.function = function
         Main.instance = self
 
+#===============================================================================
+# Utility functions for main()
+#===============================================================================
 
-#===============================================================================
-def _discover_commands(command_path):
-    """
-    Import all *.py files from <name>.cli in a subdirectory of the program's
-    directory. Any @Command decorators will be processed.
-    """
-#===============================================================================
-    if not os.path.exists(command_path):
+def _get_arg_specs():
+    arg_specs = copy.copy(list(Main.instance.arg_specs))
+    if Main.instance.support_verbose:
+        arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
+    if Main.instance.support_dryrun:
+        arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
+    if Main.instance.support_pause:
+        arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
+    return arg_specs
+
+def _preparse_args(args, arg_specs):
+    # Only doing the preparsing exercise to set the verbose flag early.
+    preparser = argparse.ArgumentParser()
+    for arg_spec in arg_specs:
+        preparser.add_argument(*arg_spec.args, **arg_spec.kwargs)
+    tmp_args, _ = preparser.parse_known_args(args=args)
+    if Main.instance.support_verbose:
+        console.set_verbose(tmp_args.verbose)
+
+def _parse_args(args, arg_specs):
+    parser = Verb.get_parser(Main.instance.description, arg_specs)
+    return parser.parse_args(args=args)
+
+# Load a discovered CLI module by importing the file rather than exec-ing a
+# string so that other symbols in the file, e.g. utility functions, are
+# available when registered @Command functions get invoked.
+def _load_cli_module(path):
+    console.verbose_info('CLI import: %s' % path)
+    try:
+        utility.import_module_path(path)
+    except Exception as e:
+        console.error('Exception while executing CLI source file: %s' % path)
+        raise
+
+def _discover_commands(command_dirs):
+    # Search the <name>.cli directory. Execute *.py from the top level
+    # directory and __cli__.py from subdirectories. @Main and @Command
+    # decorators will be registered.
+    if not Main.instance.support_discovery:
         return
-    module_name = '.'.join(['cli', os.path.basename(command_path)])
-    #TODO: Look elsewhere, e.g. under home, /usr/share, etc.?
-    discover_dirs = ['%s.cli' % command_path]
-    for discover_dir in discover_dirs:
-        for path in glob.glob(os.path.join(discover_dir, '*.py')):
-            if os.path.basename(path).startswith('_'):
-                continue
-            console.verbose_info('CLI import: %s' % path)
-            try:
-                # Import the file rather than exec-ing a string so that other
-                # symbols in the file, e.g. utility functions, are available
-                # when the registered @Command function gets invoked later.
-                utility.import_module_path(path)
-            except Exception as e:
-                console.error('Exception while executing CLI source file: %s' % path)
-                raise
+    for command_dir in command_dirs:
+        if os.path.isdir(command_dir):
+            console.verbose_info('Discovering commands in directory: %s' % command_dir)
+            # Load *.py from the top level directory.
+            paths = sorted([os.path.join(command_dir, name) for name in os.listdir(command_dir)])
+            for path in paths:
+                if os.path.isfile(path) and path.endswith('.py'):
+                    _load_cli_module(path)
+            # Load __cli__.py from immediate subdirectories.
+            for path in paths:
+                cli_path = os.path.join(path, '__cli__.py')
+                if os.path.isfile(cli_path):
+                    _load_cli_module(cli_path)
+    if not Main.instance:
+        console.abort('No @Main() was registered.')
+    if not Verb.root:
+        console.abort("No @Command's were registered.")
+
+def _discover_plugins(program_name):
+    if Main.instance.support_plugins:
+        plugins = utility.DictObject()
+        symbols = dict(program_name=program_name)
+        dir_paths = [
+            os.path.realpath(os.path.expanduser(os.path.expandvars(dir_path % symbols)))
+            for dir_path in [
+                os.path.join('~', '.%(program_name)s.d'),
+                '.%(program_name)s.d)',
+                os.path.join('%(program_directory)s', '%(program_name)s.d'),
+            ]
+        ]
+        for dir_path in dir_paths:
+            if os.path.isdir(dir_path):
+                imported_modules = import_modules_from_directory(dir_path)
+                if imported_modules:
+                    plugins.update(**imported_modules)
+        return plugins
+
+def _prepare_runner(program_name, program_directory, command_args, plugins):
+    # The runner gets passed to @Main and @Command implementation functions.
+    runner = Main.instance.runner_type(command_args,
+                                       program_name=program_name,
+                                       program_directory=program_directory)
+    # Add the runner.cfg configuration namespace as needed.
+    if Main.instance.configuration:
+        _prepare_configuration(runner)
+    # Add the runner.mod plugin namespace as needed.
+    if plugins:
+        runner.mod = plugins
+    return runner
+
+def _prepare_configuration(runner):
+    # Expand symbols in ConfigSpec text properties.
+    for cfg_spec in Main.instance.configuration:
+        cfg_spec.name = runner.expand(cfg_spec.name)
+        cfg_spec.desc = runner.expand(cfg_spec.desc)
+    # Generate the file name based on the program name as .<program-name>rc.
+    #TODO: Allow customization of the config file name?
+    runner.cfg = Config(runner.expand('.%(program_name)src'), *Main.instance.configuration)
+    # Load the configuration.
+    runner.cfg.load_for_paths('~', '.')
+
+def _invoke(runner, name, func):
+    try:
+        func(runner)
+    except KeyboardInterrupt:
+        console.abort('%s interrupted by user.' % name)
+    except command.BatchError as e:
+        console.abort(e)
+    except command.BatchFailure as e:
+        console.abort('%s command batch failed.' % name,
+                      ['return code: %d' % e.rc, 'command: %s' % e.command])
+    except Exception as e:
+        console.error('%s traceback (most recent call last)' % name)
+        (etype, value, tb) = sys.exc_info()
+        for line in traceback.format_list(traceback.extract_tb(tb)[1:]):
+            console.error(line.rstrip())
+        exc_lines = [line.rstrip() for line in traceback.format_exception_only(etype, value)]
+        console.error(*exc_lines)
+        sys.exit(255)
 
 #===============================================================================
-def main(command_line=sys.argv):
+def main(
+    program_name=None,
+    program_directory=None,
+    command_line=sys.argv,
+):
     """
     Main function to parse and validate the arguments and options, and then
     invoke the assigned command function.
@@ -465,32 +557,45 @@ def main(command_line=sys.argv):
     system exit code, i.e. 0 for success or non-zero for failure.
     """
 #===============================================================================
-    _discover_commands(command_line[0])
-    if not Main.instance:
-        console.abort('No @Main() was found.')
-    add_arg_specs = copy.copy(list(Main.instance.arg_specs))
-    if Main.instance.support_verbose:
-        add_arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
-    if Main.instance.support_dryrun:
-        add_arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
-    if Main.instance.support_pause:
-        add_arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
-    if not Verb.root:
-        console.abort("No @Command's were registered.")
-    parser = Verb.get_parser(Main.instance.description, add_arg_specs)
-    command_args = parser.parse_args(args=command_line[1:])
-    if Main.instance.support_verbose:
-        console.set_verbose(command_args.verbose)
-    if not Main.instance.program_name:
-        Main.instance.program_name = os.path.basename(command_line[0])
-    if not Main.instance.program_directory:
-        Main.instance.program_directory = os.path.dirname(command_line[0])
-    runner = Main.instance.runner_type(command_args,
-                                       program_name=Main.instance.program_name,
-                                       program_directory=Main.instance.program_directory,
-                                       support_plugins=Main.instance.support_plugins)
+
+    if not program_name:
+        program_name = os.path.basename(command_line[0])
+    if program_directory:
+        sys.path.insert(0, program_directory)
+        exec('import %s.__cli_main__' % program_name)
+    else:
+        program_directory = os.path.dirname(command_line[0])
+    #TODO: Look elsewhere, e.g. under home, /usr/share, etc.?
+    command_dirs = [os.path.join(program_directory, program_name, 'plugins')]
+
+    # Basic argument specs for universal options, like verbose, dry-run, and pause.
+    arg_specs = _get_arg_specs()
+
+    # Pre-parse arguments so that discovery can be verbose if the option is set.
+    _preparse_args(command_line[1:], arg_specs)
+
+    # Discover commands from discoverable cli directories.
+    _discover_commands(command_dirs)
+
+    # Use program overrides provided by the @Main decorator.
+    if Main.instance.program_name:
+        program_name = Main.instance.program_name
+    if Main.instance.program_directory:
+        program_directory = Main.instance.program_directory
+
+    # Parse the full command line.
+    command_args = _parse_args(command_line[1:], arg_specs)
+
+    # Discover plugin modules, if supported and present.
+    plugins = _discover_plugins(program_name)
+
+    # Run the command by invoking the @Main() and the corresponding @Command() functions.
+    runner = _prepare_runner(program_name, program_directory, command_args, plugins)
+
     # Invoke @Main function (frequently does little or nothing).
-    runner._invoke_implementation('@Main', Main.instance.function)
+    _invoke(runner, '@Main', Main.instance.function)
+
     # Invoke @Command function and return the exit code.
     if hasattr(runner.arg, 'func'):
-        return runner._invoke_implementation('@Command[%s]' % command_args.subcommand, runner.arg.func)
+        command_name = '@Command[%s]' % command_args.subcommand
+        return _invoke(runner, command_name, runner.arg.func)

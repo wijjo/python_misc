@@ -14,10 +14,12 @@
 
 import sys
 import os
+import re
 import subprocess
 import tempfile
 
 from . import utility
+from . import console
 
 """
 Wraps the standard Python subprocess module to simplify common usage patterns.
@@ -89,7 +91,6 @@ with Command('grep', 'abc').pipe_in(open('/path/to/file')) as grepcmd:
         print line
 print('grep returned %d' % grepcmd.rc)
 """
-
 
 #===============================================================================
 class Command(object):
@@ -320,37 +321,9 @@ class RunnerCommandArguments(dict):
 class Runner(object):
     """
     Runner objects are passed by the "cli" module to all call-back functions,
-    but can also be used independently for the plugin module loading and
-    namespace, command execution or template expansion functionality.
+    but can also be used independently for the command execution and or
+    template expansion functionality.
     """
-
-    class PluginModuleNamespace(object):
-
-        def __init__(self, var, *plugin_directories):
-            # Symbols are used to expand directory string templates.
-            self._var = var
-            # Loaded just in time.
-            self._modules = None
-            # List of directories
-            self._plugin_directories = [
-                os.path.join('~', '.%(program_name)s.d'),
-                '.%(program_name)s.d)',
-                os.path.join('%(program_directory)', '%(program_name)s.d'),
-            ]
-
-        def __getattr__(self, name):
-            if self._modules is None:
-                self._load_modules()
-            return self._modules.get(name, None)
-
-        def _load_modules(self):
-            self._modules = {}
-            for pd_raw in self._plugin_directories:
-                pd = os.path.realpath(os.path.expanduser(os.path.expandvars(pd_raw % self._var())))
-                if os.path.isdir(pd):
-                    modules = import_modules_from_directory(pd)
-                    if modules:
-                        self.modules.update(**modules)
 
     class VarNamespace(utility.DictObject):
         pass
@@ -358,7 +331,6 @@ class Runner(object):
     def __init__(self, command_args,
                  program_name=None,
                  program_directory=None,
-                 support_plugins=False,
                  var={}):
         self.arg = command_args
         self.program_name = program_name
@@ -368,19 +340,11 @@ class Runner(object):
             self.program_name = os.path.basename(command_args[0])
         if not self.program_directory:
             self.program_directory = os.path.dirname(command_args[0])
-        #=== Special namespaces - "var" and "mod"
         # Application-specific variables are accessible through the "var" namespace.
         self.var = Runner.VarNamespace(
             program_name=self.program_name,
             program_directory=self.program_directory,
             **var)
-        # Plugin modules and their contents are accessible through the "mod"
-        # namespace as <runner>.mod.<plugin_name>.<plugin_symbol>.
-        if support_plugins:
-            self.mod = Runner.PluginModuleNamespace(self.var,
-                                os.path.join('~', '.%(program_name)s.d'),
-                                '.%(program_name)s.d)',
-                                os.path.join('%(program_directory)', '%(program_name)s.d'))
 
     def shell(self, cmdline, abort = True):
         def checker(retcode, cmdline):
@@ -412,7 +376,81 @@ class Runner(object):
             _run_function('check_directory', checker, self.arg, os.path.exists, True, pathx)
 
     def expand(self, s):
-        try:
-            return os.path.expanduser(os.path.expandvars(s)) % self.symbols
-        except ValueError as e:
-            console.abort(e, s)
+        if s:
+            try:
+                #TODO: Don't assume it's a path!
+                s = os.path.expanduser(os.path.expandvars(s)) % self.var
+            except ValueError as e:
+                console.abort(e, s)
+        return s
+
+
+class BatchError(Exception):
+    pass
+
+
+class BatchFailure(Exception):
+    def __init__(self, command, rc):
+        Exception.__init__(self, 'Command batch failed')
+        self.command = command
+        self.rc = rc
+
+
+class Batch(object):
+    """
+    Build and execute a batch of shell commands (blocking).
+    """
+
+    def __init__(self, echo=False, dryrun=False):
+        self.echo = echo
+        self.dryrun = dryrun
+        self.quoted_command_args_batch = []
+        self.index = 0
+
+    def add_command(self, *command_args):
+        self.quoted_command_args_batch.insert(self.index, self._prepare_arg_strings(command_args))
+        self.index += 1
+
+    def add_args(self, *args):
+        self._current_command().extend(self._prepare_arg_strings(args))
+
+    def add_operator(self, op):
+        self._current_command().append(op)
+
+    def rewind(self, index=0):
+        if index < 0 or index >= len(self.quoted_command_args_batch):
+            raise BatchError('Bad rewind index: %d' % index)
+        self.index = index
+
+    def run(self):
+        for quoted_command_args in self.quoted_command_args_batch:
+            command_string = ' '.join(quoted_command_args)
+            if self.dryrun:
+                console.info('>>> %s' % command_string)
+            elif self.echo:
+                console.info(command_string)
+            if not self.dryrun:
+                rc = os.system(command_string)
+                if rc != 0:
+                    raise BatchFailure(command_string, rc)
+
+    def _current_command(self):
+        index = self.index - 1
+        if index < 0 or index >= len(self.quoted_command_args_batch):
+            raise(BatchError('No command exists at batch index: %d' % index))
+        return self.quoted_command_args_batch[index]
+
+    @classmethod
+    def _prepare_arg_strings(cls, args):
+        prepared_arg_strings = []
+        for arg in args:
+            if arg is not None:
+                if type(arg) in (list, tuple):
+                    # List and tuple items get converted to strings and concatenated.
+                    arg_string = ''.join([str(sub_arg) for sub_arg in arg])
+                else:
+                    # Everything else gets converted to a string.
+                    arg_string = str(arg)
+                # Quote the argument as needed for the shell to properly handle it.
+                prepared_arg_strings.append(utility.shlex_quote(arg_string))
+        return prepared_arg_strings
