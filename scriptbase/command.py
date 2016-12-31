@@ -406,6 +406,7 @@ class Batch(object):
         self.dryrun = dryrun
         self.quoted_command_args_batch = []
         self.index = 0
+        self.error_deletion_paths = []
 
     def add_command(self, *command_args):
         self.quoted_command_args_batch.insert(self.index, self._prepare_arg_strings(command_args))
@@ -422,6 +423,9 @@ class Batch(object):
             raise BatchError('Bad rewind index: %d' % index)
         self.index = index
 
+    def add_error_deletion_path(self, path):
+        self.error_deletion_paths.append(path)
+
     def run(self):
         for quoted_command_args in self.quoted_command_args_batch:
             command_string = ' '.join(quoted_command_args)
@@ -432,7 +436,25 @@ class Batch(object):
             if not self.dryrun:
                 rc = os.system(command_string)
                 if rc != 0:
+                    self.handle_failure_cleanup(rc)
                     raise BatchFailure(command_string, rc)
+
+    def handle_failure_cleanup(self, rc):
+        """
+        Override this for custom cleanup needed when the batch failed.
+        Make sure to call this base implementation if it is overridden.
+        """
+        for path in self.error_deletion_paths:
+            if os.path.exists(path):
+                try:
+                    if os.path.isdir(path):
+                        console.info('Delete partial directory: %s' % path)
+                        shutil.rmtree(path)
+                    else:
+                        console.info('Delete partial file: %s' % path)
+                        os.remove(path)
+                except (IOError, OSError) as e:
+                    console.error('Unable to remove partial output path: %s' % path, e)
 
     def _current_command(self):
         index = self.index - 1
