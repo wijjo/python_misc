@@ -18,6 +18,7 @@ import shutil
 import re
 import inspect
 import glob
+import getpass
 
 from . import console
 
@@ -167,3 +168,32 @@ def import_modules_from_directory(dir_path):
         module_name = os.path.splitext(os.path.basename(module_path))[0]
         modules[module_name] = import_module_path(module_path, module_name=module_name)
     return modules
+
+
+class PasswordProvider(object):
+    """
+    Class used to receive and cache a password on demand.
+    """
+
+    def __init__(self, dryrun=False):
+        """
+        Constructor with call-back and messages for display.
+        """
+        self.message = 'A password is required.'
+        self.password = None
+        if dryrun:
+            self.password = 'PASSWORD'
+
+    def get_password(self):
+        return getpass.getpass('Password: ')
+
+    def __call__(self):
+        """
+        Emulate a function. Get the password once and provide a cached copy
+        after the first call.
+        """
+        if self.password is None:
+            if self.message:
+                console.info(self.message)
+            self.password = self.get_password()
+        return self.password
