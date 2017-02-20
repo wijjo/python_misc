@@ -19,7 +19,6 @@ Mac diskutil API.
 import os
 import time
 import plistlib
-import getpass
 try:
     from StringIO import StringIO
 except ImportError:
@@ -53,46 +52,17 @@ class DUCoreStorageCommand(DUCommand):
         DUCommand.__init__(self, 'coreStorage', verb, *args)
 
 
-class DUPasswordProvider(object):
-    """
-    Class used internally to receive and cache a password on demand.
-    """
-
-    def __init__(self, get_password, message, error_message, dryrun=False):
-        """
-        Constructor with call-back and messages for display.
-        """
-        self.get_password = get_password
-        self.message = message
-        self.password = None
-        if dryrun:
-            self.password = 'PASSWORD'
-
-    def __call__(self):
-        """
-        Emulate a function. Get the password once and provide a cached copy
-        after the first call.
-        """
-        if self.password is None and not self.get_password is None:
-            if self.message:
-                console.info(self.message)
-            self.password = self.get_password()
-        if self.password is None:
-            console.abort(self.error_message)
-        return self.password
-
-
 class DUVolumeManager(object):
     """
     Provides the high level API for managing CoreStorage volumes.
     """
 
-    def __init__(self, get_password=None, dryrun=False):
+    def __init__(self, password_provider=None, dryrun=False):
         """
         Constructor accepts an optional password generation function which will
         be called as needed to unlock volume sets.
         """
-        self.get_password = get_password
+        self.password_provider = password_provider
         self.dryrun = dryrun
 
     def get_complete_volume_set(self):
@@ -168,11 +138,7 @@ class DUVolumeManager(object):
             )
 
     def _create_volume_set(self, volumes):
-        password_provider = DUPasswordProvider(self.get_password,
-            'A password is required to unlock volume(s).',
-            'No get_password call-back was provided and a password is needed.',
-            dryrun=self.dryrun)
-        return DUVolumeSet(volumes, password_provider=password_provider)
+        return DUVolumeSet(volumes, password_provider=self.password_provider)
 
     def _mount_volume(self, volume):
         with DUCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
@@ -229,11 +195,9 @@ class DUVolume(object):
 
 class CSVolumeManager(DUVolumeManager):
 
-    def __init__(self, list_path, dryrun=False):
+    def __init__(self, list_path, password_provider=None, dryrun=False):
         self.list_path = list_path
-        def get_password():
-            return getpass.getpass('Password: ')
-        DUVolumeManager.__init__(self, get_password=get_password, dryrun=dryrun)
+        DUVolumeManager.__init__(self, password_provider=password_provider, dryrun=dryrun)
 
     def cs_generate_list_file(self):
         console.info('"%s" does not exist.' % self.list_path,
@@ -270,3 +234,4 @@ class CSVolumeManager(DUVolumeManager):
                           'Make sure at least one is specified in "%s".' % self.list_path)
         volset = self.get_volume_set(volids)
         self.mount_volume_set(volset)
+        return volset

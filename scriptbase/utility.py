@@ -19,6 +19,7 @@ import re
 import inspect
 import glob
 import bisect
+import getpass
 
 from . import console
 
@@ -196,3 +197,32 @@ def binary_search(array, search_for, pos_low=0, pos_high=None):
     pos_high = pos_high if pos_high is not None else len(array)
     pos = bisect.bisect_left(array, search_for, pos_low, pos_high)
     return (pos if pos != pos_high and array[pos] == search_for else -1)
+
+
+class PasswordProvider(object):
+    """
+    Class used to receive and cache a password on demand.
+    """
+
+    def __init__(self, dryrun=False):
+        """
+        Constructor with call-back and messages for display.
+        """
+        self.message = 'A password is required.'
+        self.password = None
+        if dryrun:
+            self.password = 'PASSWORD'
+
+    def get_password(self):
+        return getpass.getpass('Password: ')
+
+    def __call__(self):
+        """
+        Emulate a function. Get the password once and provide a cached copy
+        after the first call.
+        """
+        if self.password is None:
+            if self.message:
+                console.info(self.message)
+            self.password = self.get_password()
+        return self.password
