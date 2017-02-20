@@ -18,6 +18,7 @@ import shutil
 import re
 import inspect
 import glob
+import bisect
 
 from . import console
 
@@ -173,3 +174,25 @@ def import_modules_from_directory(dir_path):
         module_name = os.path.splitext(os.path.basename(module_path))[0]
         modules[module_name] = import_module_path(module_path, module_name=module_name)
     return modules
+
+
+def generate_one_or_none(generator, enforce=True):
+    '''
+    Return first item from a generator and optionally check that nothing else
+    was generated. Return None if nothing was generated.
+    '''
+    result = None
+    for item in generator:
+        result = item
+        break
+    if enforce:
+        for item in generator:
+            raise RuntimeError('Generator "%s" had more than one item.' % generator.__name__)
+    return result
+
+
+# http://stackoverflow.com/questions/212358/binary-search-bisection-in-python
+def binary_search(array, search_for, pos_low=0, pos_high=None):
+    pos_high = pos_high if pos_high is not None else len(array)
+    pos = bisect.bisect_left(array, search_for, pos_low, pos_high)
+    return (pos if pos != pos_high and array[pos] == search_for else -1)
