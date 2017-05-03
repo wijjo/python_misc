@@ -99,21 +99,21 @@ def purge_versions(path, suffix, nKeep, reverse = False):
 
 def sshfs_mount(mountpoint, remote_host, ssh_port=22, dryrun=False):
     if mounts_check(mountpoint):
-        console.info('%(mountpoint)s was already mounted.')
+        console.info('{mountpoint} was already mounted.'.format(locals()))
     else:
         if not os.path.exists(mountpoint):
             if dryrun:
-                console.info('mkdir %(mountpoint)s' % locals())
+                console.info('mkdir {mountpoint}'.format(locals()))
             else:
                 os.mkdir(mountpoint)
-        sshfs_cmd = ('sshfs -p %(ssh_port)d '
+        sshfs_cmd = ('sshfs -p {ssh_port} '
                      '-o idmap=user '
                      '-o defer_permissions '
-                     '%(remote_host)s:/ %(mountpoint)s' % locals())
+                     '{remote_host}:/ {mountpoint}'.format(locals()))
         if dryrun:
             console.info(sshfs_cmd)
         else:
             if os.system(sshfs_cmd) == 0:
-                console.info('%(mountpoint)s is mounted.' % locals())
+                console.info('{mountpoint} is mounted.'.format(locals()))
             else:
-                console.abort('%(mountpoint)s failed to mount.' % locals())
+                console.abort('{mountpoint} failed to mount.'.format(locals()))
