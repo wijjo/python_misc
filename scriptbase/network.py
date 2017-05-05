@@ -1,4 +1,4 @@
-# Copyright 2016 Steven Cooper
+# Copyright 2016-17 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,52 +12,83 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Network utilities."""
+
 import os
 
-from . import comsole
+from . import console
+from . import disk
+from . import command
 
 
 def get_listener(port):
+    """Return port listener if any."""
     with command.Command('lsof', '-i:%d' % port, '-sTCP:LISTEN', '-t') as cmd:
         for line in cmd:
             return int(line)
 
 
-def ssh_tunnel_connect(remote_host, remote_port, local_port, ssh_port=22, dryrun=False):
+def ssh_tunnel_connect(remote_host, remote_port, local_port, ssh_port=22, dryrun=False):    #pylint: disable=unused-argument
+    """Set up and connect an SSH tunnel."""
+    context = console.Context(**locals())
     lpid = get_listener(local_port)
     if lpid is None:
-        console.info('Connecting tunnel from %(remote_host)s:%(remote_port)d '
-                     'to localhost:%(local_port)d...' % locals())
+        context.info('Connecting tunnel from {remote_host}:{remote_port} '
+                     'to localhost:{local_port}...')
         autossh_cmd = ('autossh -M 0 -f -N -o '
                        '"ServerAliveInterval 60" -o "ServerAliveCountMax 3" '
-                       '-p %(ssh_port)d '
-                       '-L %(local_port)d:localhost:%(remote_port)d '
-                       '%(remote_host)s' % locals())
+                       '-p {ssh_port} '
+                       '-L {local_port}:localhost:{remote_port} '
+                       '{remote_host}')
         if dryrun:
-            console.info(autossh_cmd)
+            context.info(autossh_cmd)
         else:
             if os.system(autossh_cmd) == 0:
-                console.info('Tunnel from %(remote_host)s:%(remote_port)d '
-                             'to localhost:%(local_port)d is active.' % locals())
+                context.info('Tunnel from {remote_host}:{remote_port} '
+                             'to localhost:{local_port} is active.')
             else:
-                console.abort('Failed to connect tunnel from %(remote_host)s:%(remote_port)d '
-                              'to localhost:%(local_port)d.' % locals())
+                context.abort('Failed to connect tunnel from {remote_host}:{remote_port} '
+                              'to localhost:{local_port}.')
     else:
-        console.info('Port %(local_port)d is already handled by process %(lpid)d.' % locals())
+        context.info('Port {local_port} is already handled by process {lpid}.')
 
 
 def ssh_tunnel_disconnect(local_port, dryrun=False):
+    """Disconnect an ssh tunnel."""
+    context = console.Context(**locals())
     lpid = get_listener(local_port)
     if lpid:
-        console.info('Killing port %(local_port)d listener process %(lpid)d...' % locals())
-        kill_cmd = 'kill %(lpid)d' % locals()
+        context.info('Killing port {local_port} listener process {lpid}...')
+        kill_cmd = context.format_string('kill {lpid}')
         if dryrun:
-            console.info(kill_cmd)
+            context.info(kill_cmd)
         else:
             if os.system(kill_cmd) == 0:
-                console.info('Port listener process %(lpid)d was killed and '
-                             'port %(local_port)d was disconnected.' % locals())
+                context.info('Port listener process {lpid} was killed and '
+                             'port {local_port} was disconnected.')
             else:
-                console.abort('Failed to kill listener process %(lpid)d.' % locals())
+                context.abort('Failed to kill listener process {lpid}.')
     else:
-        console.info('Port %(port)d does not have an active listener.' % locals())
+        context.info('Port {port} does not have an active listener.')
+
+
+def sshfs_mount(mountpoint, remote_host, ssh_port=22, dryrun=False):    #pylint: disable=unused-argument
+    """Use sshfs to mount a remote drive."""
+    context = console.Context(**locals())
+    if disk.mounts_check(mountpoint):
+        context.info('{mountpoint} was already mounted.')
+    else:
+        if not os.path.exists(mountpoint):
+            if dryrun:
+                context.info('mkdir {mountpoint}')
+            else:
+                os.mkdir(mountpoint)
+        sshfs_cmd = context.format_string(
+            'sshfs -p {ssh_port} -o idmap=user -o defer_permissions {remote_host}:/ {mountpoint}')
+        if dryrun:
+            context.info(sshfs_cmd)
+        else:
+            if os.system(sshfs_cmd) == 0:
+                context.info('{mountpoint} is mounted.')
+            else:
+                context.abort('{mountpoint} failed to mount.')

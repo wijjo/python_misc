@@ -13,26 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from scriptbase import cli
+#pylint: disable=all
 
 import sys
 import unittest
-import re
 try:
     from StringIO import StringIO
 except ImportError:
     from io import StringIO
 from contextlib import contextmanager
 
+from scriptbase import cli
+from scriptbase import console
 
-STDERR = sys.stderr
-TIMEOUT = 60
+DEFAULT_TIMEOUT = 60
 
 @cli.Main('Access remote web pages', support_dryrun=True, args=[
-    cli.Integer('timeout', 'time-out in seconds', '--timeout', default=TIMEOUT)])
+    cli.Integer('timeout', 'time-out in seconds', '--timeout', default=DEFAULT_TIMEOUT)])
 def main(runner):
-    global TIMEOUT
-    TIMEOUT = runner.arg.timeout
+    pass
 
 @cli.Command(description='download page', args=[
     cli.String('url', 'URL of page to download'),
@@ -50,7 +49,7 @@ def download(runner):
 def show(runner):
     print('show')
 
-@cli.Command(description='display route to host', parent=show)
+@cli.Command(name='route', description='display route to host', parent=show)
 def route(runner):
     print('show_route(%s)' % runner.arg.url)
 
@@ -58,23 +57,13 @@ def route(runner):
 def latency(runner):
     print('show_latency(%s)' % runner.arg.url)
 
-class TestStream(object):
-    def __init__(self, tag=''):
-        self.output = []
-    def write(self, s):
-        self.output.append(s)
-    def has_line(self, s):
-        for line in output:
-            if line.startswith(s):
-                return True
-        return False
-    def __str__(self):
-        return '\n'.join(['%s%s' % (self.tag, o) for o in self.output])
-
 @contextmanager
 def cli_main(*command_line):
-    out, sys.stdout = sys.stdout, StringIO()
-    err, sys.stderr = sys.stderr, StringIO()
+    stdout_stream = StringIO()
+    stderr_stream = StringIO()
+    out, sys.stdout = sys.stdout, stdout_stream
+    err, sys.stderr = sys.stderr, stderr_stream
+    console.set_streams(stdout_stream, stderr_stream)
     cli.main(command_line=(['test_cli'] + list(command_line)))
     sys.stdout.seek(0)
     sys.stderr.seek(0)
@@ -88,6 +77,7 @@ def cli_main(*command_line):
     yield Outputs()
     sys.stdout = out
     sys.stderr = err
+    console.set_streams(out, err)
 
 class TestCLI(unittest.TestCase):
 

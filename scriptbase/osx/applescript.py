@@ -23,7 +23,7 @@ def run_applescript(*lines):
                 args.extend(['-e', subline.strip()])
     with command.Command(*args) as cmd:
         cmd.run()
-    return cmd.rc
+    return cmd.return_code
 
 
 def run_application_applescript(app, *lines):

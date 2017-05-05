@@ -1,4 +1,4 @@
-# Copyright 2016 Steven Cooper
+# Copyright 2016-17 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Various utility functions and classes."""
+
 import sys
 import os
-import shutil
 import re
 import inspect
 import glob
 import bisect
-import getpass
-
-from . import console
 
 # Import six if available globally or locally from scriptbase/python
 # Python2-3 compatibility helper library.
@@ -31,7 +29,7 @@ except ImportError:
     from .python import six
 
 
-RE_RANGE = re.compile('\[([^\]-])-([^\]-])')
+RE_RANGE = re.compile(r'\[([^\]-])-([^\]-])')
 
 
 # https://gist.github.com/techtonik/2151727/raw/4169b8cccbb0350b709e43d464031616e1b89252/caller_name.py
@@ -39,7 +37,7 @@ RE_RANGE = re.compile('\[([^\]-])-([^\]-])')
 # Considered a hack in Python 2
 def caller_name(skip=2):
     """
-    Get a name of a caller in the format module.class.method
+    Get a name of a caller in the format module.class.method.
 
     `skip` specifies how many levels of stack to skip while getting caller
     name.  skip=1 means "who calls me", skip=2 "who calls my caller" etc.
@@ -49,65 +47,87 @@ def caller_name(skip=2):
     stack = inspect.stack()
     start = 0 + skip
     if len(stack) < start + 1:
-      return ''
+        return ''
     parentframe = stack[start][0]
 
     name = []
     module = inspect.getmodule(parentframe)
     # `modname` can be None when frame is executed directly in console
-    # TODO(techtonik): consider using __main__
+    # (techtonik): consider using __main__
     if module:
         name.append(module.__name__)
     # detect classname
     if 'self' in parentframe.f_locals:
-        # I don't know any way to detect call from the object method
-        # XXX: there seems to be no way to detect static method call - it will
-        #      be just a function call
+        # I don't know any way to detect call from the object method.
+        # There seems to be no way to detect static method call -
+        # it will be just a function call.
         name.append(parentframe.f_locals['self'].__class__.__name__)
     codename = parentframe.f_code.co_name
     if codename != '<module>':  # top level usually
-        name.append( codename ) # function or a method
+        name.append(codename) # function or a method
     del parentframe
     return ".".join(name)
 
 
-def is_string(o):
-    return isinstance(o, six.string_types) or isinstance(o, bytes)
+def is_string(value):
+    """Return True if the object is a string type."""
+    return isinstance(value, six.string_types) or isinstance(value, bytes)  #pylint: disable=consider-merging-isinstance
 
 
-def is_iterable(o):
-    return hasattr(o, '__iter__')
+def is_iterable(value):
+    """Return True if the object is an iterable type."""
+    return hasattr(value, '__iter__')
 
 
-def is_non_string_sequence(o):
-    return is_iterable(o) and not is_string(o)
+def is_non_string_sequence(value):
+    """Return True if the object is an iterable type other than a string."""
+    return is_iterable(value) and not is_string(value)
+
+
+def format_sequence(seq, *positional_args, **keyword_args):
+    """
+    Format sequence items using provided positional and keyword arguments.
+
+    Return a list or tuple sequence, depending on the input type.
+    """
+    if isinstance(seq, list):
+        return [str(item).format(*positional_args, **keyword_args) for item in seq]
+    return (str(item).format(*positional_args, **keyword_args) for item in seq)
 
 
 def expand_ranges(*args):
     """
     Generate the cross-product of strings with embedded ranges written as [x-y].
+
     If y > x they are traversed in reverse order.
     """
-    for a in args:
-        m = RE_RANGE.search(a)
-        if m:
-            o1 = ord(m.group(1))
-            o2 = ord(m.group(2))
-            expanded = [''.join([a[:m.start(1)-1], chr(o), a[m.end(2)+1:]]) for o in range(o1, o2+1)]
-            for s in expand_ranges(*expanded):
-                yield s
+    for arg in args:
+        matched = RE_RANGE.search(arg)
+        if matched:
+            ord1 = ord(matched.group(1))
+            ord2 = ord(matched.group(2))
+            expanded = [''.join([arg[:matched.start(1)-1], chr(o), arg[matched.end(2)+1:]])
+                        for o in range(ord1, ord2+1)]
+            for exp_str in expand_ranges(*expanded):
+                yield exp_str
         else:
-            yield a
+            yield arg
 
 
 class DictObject(dict):
+    """Dictionary with read/write element access as attributes."""
+
     def __getattr__(self, name):
+        """Read access to elements as attributes."""
         return self.get(name, None)
+
     def __setattr__(self, name, value):
+        """Write access to elements as attributes."""
         self[name] = value
 
 
 def pluralize(word, quantity, suffix=None, replacement=None):
+    """Simplistic heuristic word pluralization."""
     if quantity == 1:
         return word
     if replacement:
@@ -117,39 +137,24 @@ def pluralize(word, quantity, suffix=None, replacement=None):
     return '%ss' % word
 
 
-def get_keywords(*names, **kwargs):
-    d = DictObject()
-    bad = []
-    for keyword in kwargs:
-        if keyword in names:
-            d[keyword] = kwargs[keyword]
-        else:
-            bad.append(keyword)
-    if bad:
-        console.error('%s was called with %d bad keyword %s:'
-                            % (caller_name(), len(bad), pluralize('argument', len(bad))),
-                        ['Caller: %s' % caller_name(3)],
-                        ['Bad %s: %s' % (pluralize('keyword', len(bad)), ' '.join(bad))])
-    return d
+def shlex_quote(value):
+    """Return argument quoted as needed for proper shell parsing."""
+    str_value = str(value)
+    return six.moves.shlex_quote(str_value) #pylint: disable=too-many-function-args
 
 
-def shlex_quote(arg):
-    """
-    Return argument quoted as needed for proper shell parsing.
-    """
-    return six.moves.shlex_quote(arg)
-
-
-def shell_command_string(*args):
-    return ' '.join([shlex_quote(a) for a in args])
+def range_iter(*args, **kwargs):
+    """Python 2/3-compatible front end to range/xrange."""
+    if sys.version_info < (3,):
+        return xrange(*args, **kwargs)      #pylint: disable=undefined-variable
+    return range(*args, **kwargs)
 
 
 def import_module_path(module_source_path, module_name=None):
-    """
-    Import module using an explicit source file path.
-    """
+    """Import module using an explicit source file path."""
     if not module_name:
-        module_name = '_%s' % '_'.join([s.replace('.', '_') for s in os.path.split(module_source_path)])
+        module_name = '_%s' % '_'.join([s.replace('.', '_')
+                                        for s in os.path.split(module_source_path)])
     # http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
     if sys.version_info.major == 2:
         import imp
@@ -162,13 +167,16 @@ def import_module_path(module_source_path, module_name=None):
             spec.loader.exec_module(module)
         else:
             from importlib.machinery import SourceFileLoader
-            module = SourceFileLoader(module_name, module_source_path).load_module()
+            module = SourceFileLoader(module_name, module_source_path).load_module()    #pylint: disable=deprecated-method
     else:
-        console.abort('Python %d is not supported.' % sys.version_info.major)
+        sys.stderr.write('Python %d is not supported.' % sys.version_info.major)
+        sys.stderr.write(os.linesep)
+        sys.exit(255)
     return module
 
 
 def import_modules_from_directory(dir_path):
+    """Import all modules in a directory."""
     module_paths = sorted([p for p in glob.glob(os.path.join(dir_path, '*.py'))])
     modules = DictObject()
     for module_path in module_paths:
@@ -178,10 +186,13 @@ def import_modules_from_directory(dir_path):
 
 
 def generate_one_or_none(generator, enforce=True):
-    '''
-    Return first item from a generator and optionally check that nothing else
-    was generated. Return None if nothing was generated.
-    '''
+    """
+    Return first item from a generator.
+
+    Optionally check that nothing else was generated.
+
+    Return None if nothing was generated.
+    """
     result = None
     for item in generator:
         result = item
@@ -194,35 +205,7 @@ def generate_one_or_none(generator, enforce=True):
 
 # http://stackoverflow.com/questions/212358/binary-search-bisection-in-python
 def binary_search(array, search_for, pos_low=0, pos_high=None):
+    """Perform binary search on an array."""
     pos_high = pos_high if pos_high is not None else len(array)
     pos = bisect.bisect_left(array, search_for, pos_low, pos_high)
     return (pos if pos != pos_high and array[pos] == search_for else -1)
-
-
-class PasswordProvider(object):
-    """
-    Class used to receive and cache a password on demand.
-    """
-
-    def __init__(self, dryrun=False):
-        """
-        Constructor with call-back and messages for display.
-        """
-        self.message = 'A password is required.'
-        self.password = None
-        if dryrun:
-            self.password = 'PASSWORD'
-
-    def get_password(self):
-        return getpass.getpass('Password: ')
-
-    def __call__(self):
-        """
-        Emulate a function. Get the password once and provide a cached copy
-        after the first call.
-        """
-        if self.password is None:
-            if self.message:
-                console.info(self.message)
-            self.password = self.get_password()
-        return self.password

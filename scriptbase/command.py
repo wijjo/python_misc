@@ -1,4 +1,4 @@
-# Copyright 2016 Steven Cooper
+# Copyright 2016-17 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,17 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-import os
-import re
-import subprocess
-import tempfile
-
-from . import utility
-from . import console
-
-"""
-Wraps the standard Python subprocess module to simplify common usage patterns.
+r"""
+Wrap the standard Python subprocess module to simplify common usage patterns.
 
 This module trades ease of use for much less flexibility than the subprocess
 module it is built upon.  For example, it only supports line-buffering and
@@ -92,8 +83,18 @@ with Command('grep', 'abc').pipe_in(open('/path/to/file')) as grepcmd:
 print('grep returned %d' % grepcmd.rc)
 """
 
-#===============================================================================
-class Command(object):
+import sys
+import os
+import shutil
+import subprocess
+import tempfile
+
+from . import utility
+from . import shell
+from . import console
+
+
+class Command(object):  #pylint: disable=too-many-instance-attributes
     """
     Run a single command with various methods for accessing results.
 
@@ -107,47 +108,44 @@ class Command(object):
 
     The return code rc member is None until outside the "with" block.
     """
-#===============================================================================
 
     class NotInWithBlock(RuntimeError):
-        """
-        Raised when attempting to run a Command object that was created outside
-        of a "with" block.
-        """
+        """Exception for using a Command object outside of a "with" block."""
+
         def __init__(self):
-            RuntimeError.__init__(self,
-                    'Illegal attempt to use a Command without a "with" block.')
+            """Construct with canned string."""
+            RuntimeError.__init__(
+                self,
+                'Illegal attempt to use a Command without a "with" block.')
 
     class AlreadyRunning(RuntimeError):
-        """
-        Raised when attempting to set options for a Command object that is
-        already running.
-        """
+        """Exception for setting options on a running Command object."""
+
         def __init__(self):
-            RuntimeError.__init__(self,
-                    'Illegal attempt to set Command options after it is running.')
+            """Construct with canned string."""
+            RuntimeError.__init__(
+                self,
+                'Illegal attempt to set Command options after it is running.')
 
     def __init__(self, *args):
-        """
-        Constructor accepts a variable length command line argument list.
-        """
+        """Construct with variable length command line argument list."""
         self.args = args
-        self.p = None
+        self.process = None
         self.done = False
         self.output_lines = []
         self.capture_on_exit = True
         self.input_source = None
         self.dryrun = False
         self.in_with_block = False
-        self.bufsize=1
-        self.rc = None
+        self.buffer_size = 1
+        self.return_code = None
 
     def options(self,
-        bufsize=None,
-        capture_on_exit=None,
-        input_source=None,
-        dryrun=None,
-    ):
+                bufsize=None,
+                capture_on_exit=None,
+                input_source=None,
+                dryrun=None,
+               ):
         """
         Set options immediately after constructions.
 
@@ -159,7 +157,7 @@ class Command(object):
         """
         self._check_not_running()
         if bufsize is not None:
-            self.bufsize = bufsize
+            self.buffer_size = bufsize
         if capture_on_exit is not None:
             self.capture_on_exit = capture_on_exit
         if input_source is not None:
@@ -171,59 +169,56 @@ class Command(object):
         return self
 
     def __enter__(self):
+        """Open sub-process at the start of a with block."""
         self.in_with_block = True
         if not self.dryrun:
-            self.p = subprocess.Popen(
-                        self.args,
-                        bufsize=self.bufsize,
-                        stdin=self.input_source,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT)
+            self.process = subprocess.Popen(
+                self.args,
+                bufsize=self.buffer_size,
+                stdin=self.input_source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
+            )
         else:
-            print(utility.shell_command_string(*self.args))
+            print(shell.quote_arguments(*self.args))
         if self.input_source and hasattr(self.input_source, 'fileno'):
             self.input_source.close()
         return self
 
-    def __exit__(self, type, value, traceback):
-        if self.p is not None:
+    def __exit__(self, exit_type, exit_value, exit_traceback):
+        """Close sub-process and capture results at the end of a with block."""
+        if self.process is not None:
             if self.capture_on_exit:
                 self.output_lines.extend([line for line in self.__iter__()])
-            self.rc = self.p.wait()
+            self.return_code = self.process.wait()
 
     def _check_in_with_block(self):
         if not self.in_with_block:
             raise Command.NotInWithBlock()
 
     def _check_not_running(self):
-        if self.p is not None:
+        if self.process is not None:
             raise Command.AlreadyRunning()
 
     def __iter__(self):
-        """
-        Iterator runs the command and yields a line at a time.
-        """
+        """Iteration to run command and yield one output line at a time."""
         if not self.dryrun:
             self._check_in_with_block()
             self.capture_on_exit = False
             # Work around a Python 2 readline issue (https://bugs.python.org/issue3907).
-            if not self.p.stdout.closed:
-                with self.p.stdout:
-                    for line in iter(self.p.stdout.readline, b''):
+            if not self.process.stdout.closed:
+                with self.process.stdout:
+                    for line in iter(self.process.stdout.readline, b''):
                         yield line.rstrip()
 
     def run(self):
-        """
-        Run the command with output going to the console (stdout).
-        """
+        """Run the command with output going to the console (stdout)."""
         self._check_in_with_block()
         for line in self.__iter__():
             sys.stdout.write('%s\n' % line)
 
     def read_lines(self):
-        """
-        Run the command and return a list of output lines.
-        """
+        """Run the command and return a list of output lines."""
         return [line for line in self.__iter__()]
 
     def pipe_in(self, input_obj):
@@ -256,13 +251,15 @@ class Command(object):
         Arguments:
             args  variable length command argument list
         """
-        return Command(*args).pipe_in(self.p.stdout)
+        return Command(*args).pipe_in(self.process.stdout)
 
-    def _input_source_from_command(self, command_obj):
-        command_obj._check_in_with_block()
-        return command_obj.p.stdout
+    @classmethod
+    def _input_source_from_command(cls, command_obj):
+        command_obj._check_in_with_block()  #pylint: disable=protected-access
+        return command_obj.process.stdout
 
-    def _input_source_from_strings(self, add_line_separators, *input_strs):
+    @classmethod
+    def _input_source_from_strings(cls, add_line_separators, *input_strs):
         # Spool strings or bytes through a temporary file.
         input_source = tempfile.SpooledTemporaryFile()
         for input_str in input_strs:
@@ -277,7 +274,7 @@ class Command(object):
 
 
 def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
-    def arg_string():
+    def _arg_string():
         sargs = str(args)
         if sargs[-2] == ',':
             sargs = '%s)' % sargs[:-2]
@@ -287,9 +284,9 @@ def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
             skwargs = ''
         return '%s%s%s' % (tag, sargs, skwargs)
     if command_args.verbose:
-        console.display_messages(arg_string(), tag='TRACE')
+        console.display_messages(_arg_string(), tag='TRACE')
     elif command_args.pause:
-        sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % arg_string())
+        sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % _arg_string())
         sys.stdin.readline()
     ret = -1
     try:
@@ -298,110 +295,150 @@ def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
             errmsg = checker(ret, *args, **kwargs)
             if errmsg is not None:
                 if abort:
-                    console.abort(errmsg, arg_string())
+                    console.abort(errmsg, _arg_string())
                 else:
-                    console.error(errmsg, arg_string())
-    except Exception as e:
+                    console.error(errmsg, _arg_string())
+    except Exception as exc:    #pylint: disable=broad-except
         if abort:
-            console.abort(e, arg_string())
+            console.abort(exc, _arg_string())
         else:
-            console.error(e, arg_string())
+            console.error(exc, _arg_string())
     return ret
 
 
-class RunnerCommandArguments(dict):
-    def __init__(self, **kwargs):
-        dict.__init__(self, **kwargs)
-    def __getattr__(self, name):
-        return self.get(name, None)
-    def __setattr__(self, name, value):
-        self[name] = value
+class RunnerCommandArguments(utility.DictObject):
+    """Command argument dictionary with attribute access."""
+
+    pass
 
 
 class Runner(object):
     """
+    Command runner.
+
     Runner objects are passed by the "cli" module to all call-back functions,
     but can also be used independently for the command execution and or
     template expansion functionality.
     """
 
     class VarNamespace(utility.DictObject):
+        """Variable namespace is a dictionary with attribute access."""
+
         pass
 
-    def __init__(self, command_args,
+    def __init__(self,      #pylint: disable=too-many-arguments
+                 command_args,
                  program_name=None,
                  program_directory=None,
-                 var={}):
+                 expand_with_format=False,
+                 var=None):
+        """
+        Construct runner.
+
+        Positional arguments:
+            1) sequence providing command line arguments
+
+        Keyword arguments:
+            program_name        program name override
+            program_directory   program directory override
+            expand_with_format  expand() uses format() instead of '%' if True
+            var                 symbol dictionary for string expansion
+        """
         self.arg = command_args
         self.program_name = program_name
         self.program_directory = program_directory
+        self.expand_with_format = expand_with_format
         # Default program name and directory are based on the command line arguments.
         if not self.program_name:
-            self.program_name = os.path.basename(command_args[0])
+            self.program_name = os.path.basename(sys.argv[0])
         if not self.program_directory:
-            self.program_directory = os.path.dirname(command_args[0])
+            self.program_directory = os.path.dirname(sys.argv[0])
         # Application-specific variables are accessible through the "var" namespace.
+        var_dict = {} if var is None else var
         self.var = Runner.VarNamespace(
             program_name=self.program_name,
             program_directory=self.program_directory,
-            **var)
+            **var_dict)
 
-    def shell(self, cmdline, abort = True):
-        def checker(retcode, cmdline):
+    def shell(self, cmdline, abort=True):
+        """Run a shell command line."""
+        def _checker(retcode, cmdline):
             if retcode != 0:
                 return 'Shell command failed with return code %d: %s' % (retcode, cmdline)
         cmdlinex = self.expand(cmdline)
         if self.arg.dryrun:
             sys.stdout.write('%s\n' % cmdlinex)
             return 0
-        return _run_function('shell', checker, self.arg, os.system, abort, cmdlinex)
+        return _run_function('shell', _checker, self.arg, os.system, abort, cmdlinex)
 
-    def chdir(self, dir):
-        dirx = self.expand(dir)
+    def chdir(self, directory):
+        """Change working directory with path expansion."""
+        directory = self.expand(directory)
         if self.arg.dryrun:
-            sys.stdout.write('cd "%s"\n' % dirx)
+            sys.stdout.write('cd "%s"\n' % directory)
         else:
-            _run_function('chdir', None, self.arg, os.chdir, True, dirx)
+            _run_function('chdir', None, self.arg, os.chdir, True, directory)
 
     def check_directory(self, path, exists):
+        """Validate a directory with path expansion."""
         pathx = self.expand(path)
         if self.arg.dryrun:
             sys.stdout.write('test -d "%s" || exit 1\n' % pathx)
         else:
-            def checker(actual_exists, path):
+            def _checker(actual_exists, path):
                 if exists and not actual_exists:
                     return 'Directory "%s" does not exist' % path
                 if not exists and actual_exists:
                     return 'Directory "%s" already exists' % path
-            _run_function('check_directory', checker, self.arg, os.path.exists, True, pathx)
+            _run_function('check_directory', _checker, self.arg, os.path.exists, True, pathx)
 
-    def expand(self, s):
-        if s:
+    def expand(self, str_in, expand_user=False, expand_env=False):
+        """
+        Expand string or path using internal symbols.
+
+        If expand_user is True replace '~' with the user HOME. (default=False)
+
+        if expand_env is True expand environment variables. (default=False)
+
+        Return the expanded string.
+        """
+        str_out = str_in
+        if str_out:
             try:
-                #TODO: Don't assume it's a path!
-                s = os.path.expanduser(os.path.expandvars(s)) % self.var
-            except ValueError as e:
-                console.abort(e, s)
-        return s
+                if expand_env:
+                    str_out = os.path.expandvars(str_out)
+                if expand_user:
+                    str_out = os.path.expanduser(str_out)
+                if self.expand_with_format:
+                    str_out = str_out.format(self.var)
+                else:
+                    str_out = str_out % self.var
+            except ValueError as exc:
+                console.abort(exc, str_in)
+        return str_out
 
 
 class BatchError(Exception):
+    """Exception for batch errors prior to execution."""
+
     pass
 
 
 class BatchFailure(Exception):
-    def __init__(self, command, rc):
+    """Exception for batch errors during execution."""
+
+    def __init__(self, command, return_code):
+        """Constructor adds a hard-coded string and saves the command and return code."""
         Exception.__init__(self, 'Command batch failed')
         self.command = command
-        self.rc = rc
+        self.return_code = return_code
 
 
 class Batch(object):
-    """
-    Build and execute a batch of shell commands (blocking).
-    """
+    """Build and execute a batch of shell commands (blocking)."""
 
     def __init__(self, echo=False, dryrun=False):
+        """Batch constructor initializes an empty batch."""
         self.echo = echo
         self.dryrun = dryrun
         self.quoted_command_args_batch = []
@@ -409,24 +446,30 @@ class Batch(object):
         self.error_deletion_paths = []
 
     def add_command(self, *command_args):
+        """Add a command specified as separate arguments to the batch."""
         self.quoted_command_args_batch.insert(self.index, self._prepare_arg_strings(command_args))
         self.index += 1
 
     def add_args(self, *args):
+        """Add command arguments to the current command."""
         self._current_command().extend(self._prepare_arg_strings(args))
 
-    def add_operator(self, op):
-        self._current_command().append(op)
+    def add_operator(self, operator):
+        """Add an operator argument to the current command."""
+        self._current_command().append(operator)
 
     def rewind(self, index=0):
+        """Rewind the current command index."""
         if index < 0 or index >= len(self.quoted_command_args_batch):
             raise BatchError('Bad rewind index: %d' % index)
         self.index = index
 
     def add_error_deletion_path(self, path):
+        """Add a path to clean up when an error occurs."""
         self.error_deletion_paths.append(path)
 
     def run(self):
+        """Run the batch."""
         for quoted_command_args in self.quoted_command_args_batch:
             command_string = ' '.join(quoted_command_args)
             if self.dryrun:
@@ -434,14 +477,15 @@ class Batch(object):
             elif self.echo:
                 console.info(command_string)
             if not self.dryrun:
-                rc = os.system(command_string)
-                if rc != 0:
-                    self.handle_failure_cleanup(rc)
-                    raise BatchFailure(command_string, rc)
+                return_code = os.system(command_string)
+                if return_code != 0:
+                    self.handle_failure_cleanup()
+                    raise BatchFailure(command_string, return_code)
 
-    def handle_failure_cleanup(self, rc):
+    def handle_failure_cleanup(self):
         """
         Override this for custom cleanup needed when the batch failed.
+
         Make sure to call this base implementation if it is overridden.
         """
         for path in self.error_deletion_paths:
@@ -453,8 +497,8 @@ class Batch(object):
                     else:
                         console.info('Delete partial file: %s' % path)
                         os.remove(path)
-                except (IOError, OSError) as e:
-                    console.error('Unable to remove partial output path: %s' % path, e)
+                except (IOError, OSError) as exc:
+                    console.error('Unable to remove partial output path: %s' % path, exc)
 
     def _current_command(self):
         index = self.index - 1
@@ -467,12 +511,12 @@ class Batch(object):
         prepared_arg_strings = []
         for arg in args:
             if arg is not None:
-                if type(arg) in (list, tuple):
+                if isinstance(arg, (list, tuple)):
                     # List and tuple items get converted to strings and concatenated.
                     arg_string = ''.join([str(sub_arg) for sub_arg in arg])
                 else:
                     # Everything else gets converted to a string.
                     arg_string = str(arg)
                 # Quote the argument as needed for the shell to properly handle it.
-                prepared_arg_strings.append(utility.shlex_quote(arg_string))
+                prepared_arg_strings.append(shell.quote_argument(arg_string))
         return prepared_arg_strings

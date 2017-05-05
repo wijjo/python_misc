@@ -23,9 +23,9 @@ class TestCurry(unittest.TestCase):
         self.assertEqual(foo(1, 2, 3), (1, 2, 3))
         self.assertRaises(TypeError, Tweak, foo, 9)
         self.assertRaises(TypeError, Tweak, foo, before=9)
-        self.assertEqual(Tweak(foo, before=(1, 2))(3), (1, 2, 3))
-        self.assertEqual(Tweak(foo, after=(1, 2))(3), (3, 1, 2))
-        self.assertEqual(Tweak(foo, before=(1,), after=(2,))(3), (1, 3, 2))
+        self.assertEqual(Tweak(foo).before(1, 2)(3), (1, 2, 3))
+        self.assertEqual(Tweak(foo).after(1, 2)(3), (3, 1, 2))
+        self.assertEqual(Tweak(foo).before(1).after(2)(3), (1, 3, 2))
 
     def test_before(self):
         def foo(*a):
@@ -55,12 +55,12 @@ class TestCurry(unittest.TestCase):
         a, k = foo(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (1, 2, 3))
         self.assertEqual(k, dict(a=1, b=2, c=3))
-        cfoo1 = Tweak(foo, after=(10, 11, 12), merge=dict(n=11, o=12, p=13))
-        a, k = cfoo1(1, 2, 3, a=1, b=2, c=3)
+        foo_with_after = Tweak(foo).after(10, 11, 12).merge(n=11, o=12, p=13)
+        a, k = foo_with_after(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (1, 2, 3, 10, 11, 12))
         self.assertEqual(k, dict(a=1, b=2, c=3, n=11, o=12, p=13))
-        cfoo2 = Tweak(cfoo1, before=(100, 101, 102), merge=dict(x=101, y=102, z=103))
-        a, k = cfoo2(1, 2, 3, a=1, b=2, c=3)
+        foo_with_before = Tweak(foo_with_after).before(100, 101, 102).merge(x=101, y=102, z=103)
+        a, k = foo_with_before(1, 2, 3, a=1, b=2, c=3)
         self.assertEqual(a, (100, 101, 102, 1, 2, 3, 10, 11, 12))
         self.assertEqual(k, dict(a=1, b=2, c=3, n=11, o=12, p=13, x=101, y=102, z=103))
 

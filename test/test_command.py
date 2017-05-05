@@ -25,7 +25,7 @@ class TestCommand(unittest.TestCase):
             lines = [line for line in test_cmd]
         self.assertEqual(lines, [b'111', b'222', b'333'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_partial_iteration(self):
         lines = []
@@ -40,20 +40,20 @@ class TestCommand(unittest.TestCase):
         with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
             pass
         self.assertEqual(test_cmd.output_lines, [b'111', b'222', b'333'])
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_all_at_once(self):
         with Command('bash', '-c', 'for i in 111 222 333; do echo $i; done') as test_cmd:
             lines = test_cmd.read_lines()
         self.assertEqual(lines, [b'111', b'222', b'333'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_console(self):
         with Command('bash', '-c', 'ls -l /tmp > /dev/null') as test_cmd:
             test_cmd.run()
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_with_block_exception(self):
         test_cmd = Command('bash', '-c', 'for i in 111 222 333; do echo $i; done')
@@ -65,10 +65,10 @@ class TestCommand(unittest.TestCase):
             with test_cmd.pipe_out('grep', '[bd]') as grep_cmd:
                 lines = [line for line in grep_cmd]
             self.assertEqual(len(test_cmd.output_lines), 0)
-            self.assertEqual(grep_cmd.rc, 0)
+            self.assertEqual(grep_cmd.return_code, 0)
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_input_pipe(self):
         lines = []
@@ -76,10 +76,10 @@ class TestCommand(unittest.TestCase):
             with Command('grep', '[bd]').pipe_in(test_cmd) as grep_cmd:
                 lines = [line for line in grep_cmd]
             self.assertEqual(len(grep_cmd.output_lines), 0)
-            self.assertEqual(grep_cmd.rc, 0)
+            self.assertEqual(grep_cmd.return_code, 0)
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_input_bytes(self):
         lines = []
@@ -87,7 +87,7 @@ class TestCommand(unittest.TestCase):
             lines = [line for line in test_cmd]
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_input_string(self):
         lines = []
@@ -95,7 +95,7 @@ class TestCommand(unittest.TestCase):
             lines = [line for line in test_cmd]
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_input_list(self):
         lines = []
@@ -103,7 +103,7 @@ class TestCommand(unittest.TestCase):
             lines = [line for line in test_cmd]
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
     def test_input_stream(self):
         lines = []
@@ -114,7 +114,7 @@ class TestCommand(unittest.TestCase):
             lines = [line for line in test_cmd]
         self.assertEqual(lines, [b'b', b'd'])
         self.assertEqual(len(test_cmd.output_lines), 0)
-        self.assertEqual(test_cmd.rc, 0)
+        self.assertEqual(test_cmd.return_code, 0)
 
 def demo_realtime():
     """

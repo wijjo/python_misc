@@ -1,4 +1,4 @@
-# Copyright 2016 Steven Cooper
+# Copyright 2016-17 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,12 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import sys
-import os
-import bisect
-
-from . import utility
 
 """
 pspace -- Property storage and access through scoped spaces.
@@ -268,35 +262,47 @@ Utility Functions
 +=================================+==================================+
 """
 
+import sys
+import os
+import bisect
+
+from . import utility
+
 
 class PSpace(object):
     """
-    Provides scoped access to property data, given a base address. To avoid
-    conflicts with property pseudo-attribute names there are no public
-    attributes or methods. The only methods are the overloaded "[]", ".",
-    "()", and iteration operators.
+    Provide scoped access to property data given a base address.
+
+    To avoid conflicts with property pseudo-attribute names there are no public
+    attributes or methods. The only methods are the overloaded "[]", ".", "()",
+    and iteration operators.
     """
 
-    class NoValue: pass
+    class _NoValue:
+        pass
 
     __slots__ = ['_store_', '_address_']
 
     def __init__(self, store, address):
+        """Construct with a store and an address."""
         object.__setattr__(self, '_store_', store)
         object.__setattr__(self, '_address_', str(address))
 
     def __getitem__(self, index):
         """
-        Indexed getter returns a PSpace for accessing children and
-        properties.
+        Indexed getter.
+
+        Return a PSpace for accessing children and properties.
         """
         return descend(self, index)
 
     def __setitem__(self, index, input_data):
         """
-        Assignment updates one or more properties at and or below the relative
-        address specified by the index. It copies multiple property values
-        using relative addressing if input_data is a PSpace object. Otherwise a
+        Indexed assignment.
+
+        Updates one or more properties at and or below the relative address
+        specified by the index. It copies multiple property values using
+        relative addressing if input_data is a PSpace object. Otherwise a
         single property value is assumed.
         """
         if isinstance(input_data, PSpace):
@@ -306,26 +312,31 @@ class PSpace(object):
 
     def __delitem__(self, index):
         """
-        Indexed deletion deletes any assigned property value or does nothing if
-        there isn't an assigned value. It also cleans up the address space so
-        that addresses that have become empty, i.e. they no longer contain any
-        property values, are not visited by iterators.
+        Indexed deletion.
+
+        Deletes any assigned property value or does nothing if there isn't an
+        assigned value. It also cleans up the address space so that addresses
+        that have become empty, i.e. they no longer contain any property
+        values, are not visited by iterators.
         """
         delete(descend(self, index), max_depth=0)
 
     def __getattr__(self, name):
         """
-        Attribute getter returns a PSpace for accessing children and
-        properties.
+        Attribute getter.
+
+        Return a PSpace for accessing children and properties.
         """
         return descend(self, name)
 
     def __setattr__(self, name, input_data):
         """
-        Assignment updates one or more properties at and or below the relative
-        address specified by the attribute name. It copies multiple property
-        values using relative addressing if input_data is a PSpace object.
-        Otherwise a single property value is assumed.
+        Attribute assignment.
+
+        Updates one or more properties at and or below the relative address
+        specified by the attribute name. It copies multiple property values
+        using relative addressing if input_data is a PSpace object. Otherwise a
+        single property value is assumed.
         """
         if isinstance(input_data, PSpace):
             copy_from_space(descend(self, name), input_data)
@@ -334,21 +345,23 @@ class PSpace(object):
 
     def __delattr__(self, name):
         """
-        Attribute deletion deletes any assigned property value or does nothing
-        if there isn't an assigned value. It also cleans up the address space
-        so that addresses that have become empty, i.e. they no longer contain
-        any property values, are not visited by iterators.
+        Attribute deletion.
+
+        Deletes any assigned property value or does nothing if there isn't an
+        assigned value. It also cleans up the address space so that addresses
+        that have become empty, i.e. they no longer contain any property
+        values, are not visited by iterators.
         """
         delete(descend(self, name), max_depth=0)
 
     def __iter__(self):
-        """
-        Generate address/value pairs for all properties in this space.
-        """
+        """Generate address/value pairs for all properties in this space."""
         return walk(self)
 
-    def __call__(self, value=NoValue):
+    def __call__(self, value=_NoValue):
         """
+        Call magic method.
+
         Call with no arguments returns a property value or None if the property
         doesn't exist.
 
@@ -357,7 +370,7 @@ class PSpace(object):
         using relative addressing if value is a PSpace object. Otherwise a
         single property value is assumed.
         """
-        if value is PSpace.NoValue:
+        if value is PSpace._NoValue:
             # Get the value.
             key_value = utility.generate_one_or_none(walk(self, max_depth=0))
             return key_value[1] if key_value else None
@@ -368,46 +381,53 @@ class PSpace(object):
             set_value(self, value)
 
     def __str__(self):
+        """String conversion magic method."""
         return to_string(self)
 
 
 class PropertyStoreBase(object):
     """
-    Abstract property store interface. Note that bulk operations are preferred
-    to allow for optimized implementations.
+    Abstract property store interface.
+
+    Note that bulk operations are preferred to allow for optimized
+    implementations.
     """
 
     def set_properties(self, address, sub_address_value_pair_sequence):
         """
-        Required property value setter that stores property values from an
-        input sub_address/value pair sequence.
+        Required property value setter.
+
+        Stores property values from an input sub_address/value pair sequence.
         """
         raise NotImplementedError('%s class must implement set_properties().'
-                                        % self.__class__.__name__)
+                                  % self.__class__.__name__)
 
     def get_properties(self, address, min_depth=0, max_depth=None):
         """
-        Required generator that yields property address/value pairs sorted by
-        address for all addresses where a value is assigned.
+        Required generator.
+
+        Yields property address/value pairs sorted by address for all addresses
+        where a value is assigned.
         """
         raise NotImplementedError('%s class must implement get_properties().'
-                                        % self.__class__.__name__)
+                                  % self.__class__.__name__)
 
     def delete_properties(self, address, min_depth=0, max_depth=None, deleted=None):
-        """
-        Required property value deleter.
-        """
+        """Required property value deleter."""
         raise NotImplementedError('%s class must implement delete_properties().'
-                                        % self.__class__.__name__)
+                                  % self.__class__.__name__)
 
 
 class SortedDictPropertyStore(PropertyStoreBase):
     """
+    Sorted dictionary property store.
+
     A property store implementation that stores property data in an ordered
     dictionary that gets sorted only when needed for iteration.
     """
 
     def __init__(self):
+        """Construct with an empty dictionary."""
         self.all_properties = dict()
         # Populated as-needed for iteration. For efficiency deleted keys are
         # not removed and must be skipped.
@@ -415,8 +435,9 @@ class SortedDictPropertyStore(PropertyStoreBase):
 
     def set_properties(self, address, sub_address_value_pair_sequence):
         """
-        Required property value setter that stores property values from an
-        input sub_address/value pair sequence.
+        Required property value setter.
+
+        Stores property values from an input sub_address/value pair sequence.
         """
         for key, value in sub_address_value_pair_sequence:
             full_key = build_address(address, key)
@@ -426,16 +447,16 @@ class SortedDictPropertyStore(PropertyStoreBase):
 
     def get_properties(self, address, min_depth=0, max_depth=None):
         """
-        Required generator that yields property address/value pairs sorted by
-        address for all addresses where a value is assigned.
+        Required generator.
+
+        Yields property address/value pairs sorted by address for all addresses
+        where a value is assigned.
         """
         for key in self._populated_keys(address, min_depth=min_depth, max_depth=max_depth):
             yield key, self.all_properties[key]
 
     def delete_properties(self, address, min_depth=0, max_depth=None, deleted=None):
-        """
-        Required property value deleter.
-        """
+        """Required property value deleter."""
         # Can optimize deleting everything and the caller doesn't need to
         # know what was deleted.
         if not address and min_depth == 0 and max_depth is None and deleted is None:
@@ -491,8 +512,11 @@ def build_address(*parts):
 
 def dict_flatten_items(nested_dict):
     """
-    Convert a nested dict, e.g. {'a': 1, 'b': {'c': 2, 'd': 3}} to a flat
-    name/value pair iterable sequence, e.g. ('a', 1) ('b.c', 2) ('b.d', 3).
+    Convert a nested dictionary to a flat name/value pair iterable sequence.
+
+    For example:
+         input: {'a': 1, 'b': {'c': 2, 'd': 3}}
+        output: ('a', 1) ('b.c', 2) ('b.d', 3)
     """
     for key, value in utility.six.iteritems(nested_dict):
         if hasattr(value, '__setitem__') and hasattr(value, 'keys'):
@@ -504,16 +528,20 @@ def dict_flatten_items(nested_dict):
 
 def dict_flatten(nested_dict):
     """
-    Convert a nested dict, e.g. {'a': 1, 'b': {'c': 2, 'd': 3}} to a flat
-    dict, e.g. {'a': 1, 'b.c': 2, 'b.d': 3}.
+    Convert a nested dictionary to a flat dictionary.
+
+    For example:
+         input: {'a': 1, 'b': {'c': 2, 'd': 3}}
+        output: {'a': 1, 'b.c': 2, 'b.d': 3}
     """
     return dict(dict_flatten_items(nested_dict))
 
 
 def create(store_class=None):
     """
-    Create a property store and provide a space representing the root. The
-    optional property store class must inherit from PropertyStoreBase.
+    Create a property store and provide a space representing the root.
+
+    The optional property store class must inherit from PropertyStoreBase.
 
     Optional keyword arguments:
         store_class  property store class (default=SortedDictPropertyStore)
@@ -537,14 +565,15 @@ def descend(space, sub_address):
 
     Returns a PSpace object.
     """
-    return PSpace(space._store_, build_address(space._address_, sub_address))
+    return PSpace(space._store_, build_address(space._address_, sub_address))       #pylint: disable=protected-access
 
 
 def copy_from_space(target_space, source_space):
     """
-    Copy property values from one space to another using relative addressing.
-    The target and source spaces can share the same property store, but do not
-    have to.
+    Copy property values from one space to another.
+
+    Uses relative addressing. The target and source spaces can share the same
+    property store, but do not have to.
 
     This copies all properties. To copy filtered properties use walk(space,
     <filters>) and pass the results to update_from_sequence().
@@ -553,19 +582,18 @@ def copy_from_space(target_space, source_space):
         target_space  target space
         source_space  source space for input properties
     """
-    target_space._store_.set_properties(target_space._address_, walk(source_space))
+    target_space._store_.set_properties(target_space._address_, walk(source_space)) #pylint: disable=protected-access
 
 
 def update_from_sequence(space, name_value_pair_sequence):
     """
-    Update properties in a target space with properties from a source space
-    using relative addressing.
+    Update properties from a name/value pair sequence.
 
     Positional arguments:
         space                     target space
         name_value_pair_sequence  input name/value pairs for properties
     """
-    space._store_.set_properties(space._address_, name_value_pair_sequence)
+    space._store_.set_properties(space._address_, name_value_pair_sequence)         #pylint: disable=protected-access
 
 
 def update_from_dictionary(space, data_dict):
@@ -580,7 +608,7 @@ def update_from_dictionary(space, data_dict):
         space      target space
         data_dict  input dictionary with property data
     """
-    space._store_.set_properties(space._address_, dict_flatten_items(data_dict))
+    space._store_.set_properties(space._address_, dict_flatten_items(data_dict))    #pylint: disable=protected-access
 
 def set_value(space, value):
     """
@@ -590,13 +618,16 @@ def set_value(space, value):
         space  target space
         value  new value for property
     """
-    space._store_.set_properties(space._address_, [('', value)])
+    space._store_.set_properties(space._address_, [('', value)])                    #pylint: disable=protected-access
 
 
 def walk(space, min_depth=0, max_depth=None, filter_func=None, relative=False):
     """
-    Recursively generate address/value pairs for all populated properties
-    within a space. Optionally limit the traversal based on depth constraints.
+    Recursively generate address/value pairs.
+
+    Generate for all populated properties within a space.
+
+    Optionally limit the traversal based on depth constraints.
 
     Positional arguments:
         space  constraining property space
@@ -617,9 +648,9 @@ def walk(space, min_depth=0, max_depth=None, filter_func=None, relative=False):
         raise ValueError('min_depth (%d) must not be negative' % min_depth)
     if max_depth is not None and max_depth < min_depth:
         raise ValueError('max_depth (%d) must be greater than min_depth (%d)'
-                            % (max_depth, min_depth))
-    skip_count = len(space._address_) if relative else 0
-    for address, value in space._store_.get_properties(space._address_,
+                         % (max_depth, min_depth))
+    skip_count = len(space._address_) if relative else 0                            #pylint: disable=protected-access
+    for address, value in space._store_.get_properties(space._address_,             #pylint: disable=protected-access
                                                        min_depth=min_depth,
                                                        max_depth=max_depth):
         if not filter_func or filter_func(address, value):
@@ -632,8 +663,9 @@ def walk(space, min_depth=0, max_depth=None, filter_func=None, relative=False):
 
 def delete(space, min_depth=0, max_depth=None, deleted=None):
     """
-    Recursively delete properties from a space. Optionally limit the traversal
-    based on depth constraints.
+    Recursively delete properties from a space.
+
+    Optionally limit the traversal based on depth constraints.
 
     Positional arguments:
         space  constraining property space
@@ -653,8 +685,8 @@ def delete(space, min_depth=0, max_depth=None, deleted=None):
         raise ValueError('min_depth (%d) must not be negative' % min_depth)
     if max_depth is not None and max_depth < min_depth:
         raise ValueError('max_depth (%d) must be greater than min_depth (%d)'
-                            % (max_depth, min_depth))
-    return space._store_.delete_properties(space._address_,
+                         % (max_depth, min_depth))
+    return space._store_.delete_properties(space._address_,                         #pylint: disable=protected-access
                                            min_depth=min_depth,
                                            max_depth=max_depth,
                                            deleted=deleted)
@@ -663,16 +695,16 @@ def delete(space, min_depth=0, max_depth=None, deleted=None):
 def dump(space, stream=sys.stderr):
     """Dump the contents of a PSpace to an output stream for debugging."""
     stream.write('%s::: begin PSpace dump from base address "%s" :::%s'
-                    % (os.linesep, space._address_, os.linesep))
+                 % (os.linesep, space._address_, os.linesep))                       #pylint: disable=protected-access
     for key, value in walk(space, ''):
         stream.write('%s = %s%s' % (key, str(value), os.linesep))
     stream.write('::: end PSpace dump from base address "%s" :::%s'
-                    % (space._address_, os.linesep))
+                 % (space._address_, os.linesep))                                   #pylint: disable=protected-access
 
 
 def to_string(space):
     """Format the space properties as a human-readable string."""
-    lines = ['PSpace[%s]:' % space._address_]
+    lines = ['PSpace[%s]:' % space._address_]                                       #pylint: disable=protected-access
     for address, value in walk(space):
         lines.append('  %s = %s' % (address, str(value)))
     return os.linesep.join(lines)

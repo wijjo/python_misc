@@ -127,7 +127,7 @@ class DUVolumeManager(object):
             with DUCoreStorageCommand('information', '-plist', volid) as cmd:
                 pass
             plist_text = '\n'.join(cmd.output_lines)
-            if cmd.rc != 0:
+            if cmd.return_code != 0:
                 return DUVolume(volid, None, 0, None)
             plist = plistlib.readPlistFromString(plist_text)
             return DUVolume(
@@ -144,7 +144,7 @@ class DUVolumeManager(object):
         with DUCommand('mount', volume.volid).options(dryrun=self.dryrun) as cmd:
             pass
         if not self.dryrun:
-            if cmd.rc != 0:
+            if cmd.return_code != 0:
                 console.abort('Mount failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
             console.info('Mount succeeded: "%s" (%s)' % (volume.name, volume.volid))
 
@@ -153,7 +153,7 @@ class DUVolumeManager(object):
                 ).options(dryrun=self.dryrun) as cmd:
             pass
         if not self.dryrun:
-            if cmd.rc != 0:
+            if cmd.return_code != 0:
                 console.abort('Unlock failed: "%s" (%s)' % (volume.name, volume.volid), cmd.output_lines)
             console.info('Unlock succeeded: "%s" (%s)' % (volume.name, volume.volid))
             time.sleep(10)
@@ -164,7 +164,7 @@ class DUVolumeManager(object):
                 ).options(dryrun=self.dryrun).pipe_in(password) as cmd:
             pass
         if not self.dryrun:
-            if cmd.rc != 0:
+            if cmd.return_code != 0:
                 console.abort('Attach failed: %s' % volume.volid, cmd.output_lines)
             console.info('Attach succeeded: %s' % volume.volid)
 

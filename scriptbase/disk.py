@@ -1,4 +1,4 @@
-# Copyright 2016 Steven Cooper
+# Copyright 2016-17 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,32 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Disk-related utilities for Unix-like systems."""
+
 import os
 import re
 from glob import glob
 
 from . import command
-from . import console
 
 
 RE_MOUNT = re.compile('^(/[a-z0-9_/]+) on (/[a-z0-9_/ ]+)( [(][^)]*[)])?', re.IGNORECASE)
 
 
 def iter_mounted_volumes():
-    """
-    Iterate mounted volume paths.
-    """
+    """Iterate mounted volume paths."""
     with command.Command('mount') as cmd:
         for line in cmd:
-            m = RE_MOUNT.match(line)
-            if m:
-                yield m.group(2), m.group(1)
+            matched = RE_MOUNT.match(line)
+            if matched:
+                yield matched.group(2), matched.group(1)
 
 
 def mounts_check(*mountpoints):
-    """
-    Return True if all passed mount points have mounted volumes.
-    """
+    """Return True if all passed mount points have mounted volumes."""
     mounted = dict(iter_mounted_volumes())
     for mountpoint in mountpoints:
         if mountpoint not in mounted:
@@ -53,67 +50,41 @@ def _get_version(path):
 
 
 def get_versioned_path(path, suffix):
-    """
-    Convert path to versioned path by adding suffix and counter when necessary.
-    """
+    """Convert path to versioned path by adding suffix and counter when necessary."""
     (base, ext) = os.path.splitext(path)
     re_strip_version = re.compile('(.*)-%s(-[0-9]*)?' % suffix)
-    m = re_strip_version.match(base)
-    if m:
-        base = m.group(1)
+    matched = re_strip_version.match(base)
+    if matched:
+        base = matched.group(1)
     path = '%s-%s%s' % (base, suffix, ext)
     if not os.path.exists(path):
         return path
-    n = 1
+    max_version = 1
     for chk in glob('%s-%s-[0-9]*%s' % (base, suffix, ext)):
-        i = _get_version(chk)
-        if i > n:
-            n = i
-    suffix2 = '%s-%d' % (suffix, n+1)
+        version = _get_version(chk)
+        if version > max_version:
+            max_version = version
+    suffix2 = '%s-%d' % (suffix, max_version + 1)
     return '%s-%s%s' % (base, suffix2, ext)
 
 
-def purge_versions(path, suffix, nKeep, reverse = False):
+def purge_versions(path, suffix, num_keep, reverse=False):
     """
-    Purge file versions created by get_versioned_path.  Purge specified
-    quantity in normal or reverse sequence.
+    Purge file versions created by get_versioned_path.
+
+    Purge specified quantity in normal or reverse sequence.
     """
     (base, ext) = os.path.splitext(path)
     re_strip_version = re.compile('(.*)-%s(-[0-9]*)?' % suffix)
-    m = re_strip_version.match(base)
-    if m:
-        base = m.group(1)
+    matched = re_strip_version.match(base)
+    if matched:
+        base = matched.group(1)
     versions = [version for version in glob('%s-%s*%s' % (base, suffix, ext))]
-    if reverse:
-        versions.sort(cmp = lambda v1, v2: cmp(_get_version(v2), _get_version(v1)))
-    else:
-        versions.sort(cmp = lambda v1, v2: cmp(_get_version(v1), _get_version(v2)))
-    nPurge = len(versions) - nKeep
-    if nPurge > len(versions):
-        nPurge = 0
-    if nPurge > 0:
-        for path in versions[:nPurge]:
-            os.remove(path)
-    return nPurge
-
-
-def sshfs_mount(mountpoint, remote_host, ssh_port=22, dryrun=False):
-    if mounts_check(mountpoint):
-        console.info('{mountpoint} was already mounted.'.format(locals()))
-    else:
-        if not os.path.exists(mountpoint):
-            if dryrun:
-                console.info('mkdir {mountpoint}'.format(locals()))
-            else:
-                os.mkdir(mountpoint)
-        sshfs_cmd = ('sshfs -p {ssh_port} '
-                     '-o idmap=user '
-                     '-o defer_permissions '
-                     '{remote_host}:/ {mountpoint}'.format(locals()))
-        if dryrun:
-            console.info(sshfs_cmd)
-        else:
-            if os.system(sshfs_cmd) == 0:
-                console.info('{mountpoint} is mounted.'.format(locals()))
-            else:
-                console.abort('{mountpoint} failed to mount.'.format(locals()))
+    versions.sort(key=_get_version, reverse=reverse)
+    num_purge = len(versions) - num_keep
+    if num_purge > len(versions):
+        num_purge = 0
+    if num_purge > 0:
+        for version_path in versions[:num_purge]:
+            os.remove(version_path)
+    return num_purge
