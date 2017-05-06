@@ -26,7 +26,7 @@ from . import utility
 GITHUB_ROOT_CONFIG = os.path.expanduser('~/.github_root')
 RE_SECTION = re.compile(r'^\s*\[([^\]]+)\]\s*$')
 RE_VERSION = re.compile(r'.* version ([^\s]+)', re.IGNORECASE)
-
+RE_SUBMODULE = re.compile(r'^(.)([0-9a-f]+)\s+(.+) \((.+)\)\s*$')
 
 def parse_version_number_string(version_string):
     """Parse a dot-separated version string."""
@@ -313,6 +313,10 @@ def get_repository_url():
 
 def iter_submodules():
     """Yield submodule relative paths."""
-    with command.Command('git', 'submodule', '--quiet', 'foreach', 'echo $name') as cmd:
+    with command.Command('git', 'submodule') as cmd:
         for line in cmd:
-            yield line.strip()
+            matched = RE_SUBMODULE.match(line)
+            if matched:
+                yield matched.group(3)
+            else:
+                print(line)
