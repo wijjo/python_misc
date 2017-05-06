@@ -15,12 +15,11 @@
 """Git utility classes and functions."""
 
 import os
-import subprocess
 import re
 
 from . import console
-from . import command
 from . import utility
+from .command import Command, Runner, RunnerCommandArguments, Batch
 
 
 GITHUB_ROOT_CONFIG = os.path.expanduser('~/.github_root')
@@ -79,37 +78,35 @@ def get_info():
 
 def iter_branches(merged=False, unmerged=False, user=None):
     """Generate branch iterator."""
-    opts = ''
+    cmd_args = ['git', 'branch', '-r']
     if merged:
-        opts = ' --merged'
+        cmd_args.append('--merged')
     elif unmerged:
-        opts = ' --no-merged'
-    git_branch = subprocess.Popen('git branch -r%s' % opts, shell=True,
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    for line in git_branch.communicate()[0].split('\n'):
-        args = [s.strip() for s in line.split('->') if s.strip()]
-        if len(args) == 1:
-            branch = args[0]
-            if user is None or get_branch_user(branch) == user:
-                yield branch
+        cmd_args.append('--no-merged')
+    with Command(*cmd_args) as cmd:
+        for line in cmd:
+            args = [s.strip() for s in line.split('->') if s.strip()]
+            if len(args) == 1:
+                branch = args[0]
+                if user is None or get_branch_user(branch) == user:
+                    yield branch
 
 
 def get_branch_user(branch):
     """Get user name for given branch."""
-    git_branch = subprocess.Popen('git log --pretty=tformat:%%an -1 %s' % branch,
-                                  shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    return git_branch.communicate()[0].split('\n')[0].strip()
+    with Command('git', 'log', '--pretty=tformat:%an', '-1', branch) as cmd:
+        for line in cmd:
+            return line
 
 
 def get_local_branch():
     """Get the checked out branch name."""
-    proc = subprocess.Popen('git branch',
-                            shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     branch = '(unknown)'
-    for line in proc.communicate()[0].split('\n'):
-        if line.startswith('* '):
-            branch = line[2:]
-    if proc.returncode != 0:
+    with Command('git', 'branch') as cmd:
+        for line in cmd:
+            if line.startswith('* '):
+                branch = line[2:]
+    if cmd.return_code != 0:
         console.abort('You are not in a git workspace directory.')
     return branch
 
@@ -120,25 +117,29 @@ def get_tracking_branch():
 
     http://stackoverflow.com/questions/171550/find-out-which-remote-branch-a-local-branch-is-tracking
     """
-    git_branch = subprocess.Popen("git for-each-ref --format='%(upstream:short)' "
-                                  "$(git symbolic-ref -q HEAD)",
-                                  shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    return git_branch.communicate()[0].split('\n')[0].strip()
+    with Command(
+        'git',
+        'for-each-ref',
+        "--format='%(upstream:short)' $(git symbolic-ref -q HEAD)"
+    ) as cmd:
+        for line in cmd:
+            return line
+        if cmd.return_code != 0:
+            console.abort('"git for-each-ref" failed with return code {return_code}',
+                          return_code=cmd.return_code)
 
 
 def iter_unmerged_commits(branch):
     """Get unmerged commits for given branch."""
     class _Item(object):
-        pass
-    git_branch = subprocess.Popen('git cherry -v master %s' % branch,
-                                  shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    for line in git_branch.communicate()[0].split('\n'):
-        fields = line.split(None, 2)
-        if len(fields) == 3 and fields[0] == '+':
-            item = _Item()
-            item.identifier = fields[1]     #pylint: disable=attribute-defined-outside-init
-            item.comment = fields[2]        #pylint: disable=attribute-defined-outside-init
-            yield item
+        def __init__(self, identifier, comment):
+            self.identifier = identifier
+            self.comment = comment
+    with Command('git', 'cherry', '-v', 'master', branch) as cmd:
+        for line in cmd:
+            fields = line.split(None, 2)
+            if len(fields) == 3 and fields[0] == '+':
+                yield _Item(fields[1], fields[2])
 
 
 def _unquote_path(path):
@@ -168,12 +169,12 @@ def iter_changes(submodules=False):
             modified = 0.0
         return _FileStatus(flag, path, path2, modified)
     status_cmd_args = ('git', 'status', '--porcelain', '--ignore-submodules')
-    with command.Command(*status_cmd_args) as cmd:
+    with Command(*status_cmd_args) as cmd:
         for line in cmd:
             yield _get_status(line, None)
     if submodules:
         submodule = None
-        with command.Command('git', 'submodule', 'foreach', ' '.join(status_cmd_args)) as cmd:
+        with Command('git', 'submodule', 'foreach', ' '.join(status_cmd_args)) as cmd:
             for line in cmd:
                 if line.startswith('Entering'):
                     submodule = line[10:-1]
@@ -196,7 +197,7 @@ def remote_branch_exists(url, branch, verbose=False):
     args = ['git', 'ls-remote', '--heads', url, branch]
     if verbose:
         console.verbose_info(' '.join(args))
-    with command.Command(*args) as cmd:
+    with Command(*args) as cmd:
         for line in cmd:
             if verbose:
                 console.verbose_info(line)
@@ -207,19 +208,16 @@ def remote_branch_exists(url, branch, verbose=False):
 
 def git_project_root(directory=None, optional=False):
     """Return the Git project root if inside a Git local repository."""
-    if directory:
-        os.chdir(directory)
-        save_directory = os.getcwd()
-    else:
-        save_directory = None
-    try:
-        with command.Command('git', 'rev-parse', '--show-toplevel') as cmd:
+    def _get_project_root():
+        with Command('git', 'rev-parse', '--show-toplevel') as cmd:
             for line in cmd:
-                root_directory = line
-                break
-    finally:
-        if save_directory:
-            os.chdir(save_directory)
+                return line
+    root_directory = None
+    if directory:
+        with utility.working_directory_context(directory):
+            root_directory = _get_project_root()
+    else:
+        root_directory = _get_project_root()
     if not root_directory and not optional:
         console.abort('Failed to find git project root directory.')
     return root_directory
@@ -247,7 +245,7 @@ def get_github_root(github_root):
 def git_version():
     """Return the git program version."""
     version = None
-    with command.Command('git', '--version') as cmd:
+    with Command('git', '--version') as cmd:
         for line in cmd:
             if version is None:
                 matched = RE_VERSION.search(line)
@@ -267,7 +265,7 @@ def is_git_version_newer(min_version):
 
 def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):    #pylint: disable=too-many-arguments
     """Create a new branch."""
-    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner = Runner(RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
     runner.var.branch = branch
     runner.var.ancestor = ancestor if ancestor else 'master'
     # Create local branch.
@@ -280,7 +278,7 @@ def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False,
 
 def create_remote_branch(url, branch, dryrun=False, verbose=False):
     """Create a new remote branch."""
-    runner = command.Runner(command.RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner = Runner(RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
     runner.var.branch = branch
     remote_exists = False
     if not dryrun:
@@ -306,17 +304,30 @@ def create_remote_branch(url, branch, dryrun=False, verbose=False):
 
 def get_repository_url():
     """Get the URL for the remote repository."""
-    with command.Command('git', 'config', '--get', 'remote.origin.url') as cmd:
+    with Command('git', 'config', '--get', 'remote.origin.url') as cmd:
         for line in cmd:
             return line
 
 
 def iter_submodules():
     """Yield submodule relative paths."""
-    with command.Command('git', 'submodule') as cmd:
+    with Command('git', 'submodule') as cmd:
         for line in cmd:
             matched = RE_SUBMODULE.match(line)
             if matched:
                 yield matched.group(3)
             else:
                 print(line)
+
+
+def rename_branch(branch, remote_name=None, rename_remote=False, dryrun=False):
+    """Rename the local and (optionally) the remote branch."""
+    old_local = get_local_branch()
+    new_local = branch
+    batch = Batch(dryrun=dryrun)
+    batch.add_command('git', 'branch', '-m', old_local, new_local)
+    if rename_remote:
+        new_remote = remote_name if remote_name else new_local
+        batch.add_command('git', 'push', 'origin', new_remote)
+        batch.add_command('git', 'branch', '--set-upstream', new_local, 'origin/%s' % new_remote)
+    batch.run()

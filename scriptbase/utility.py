@@ -20,6 +20,7 @@ import re
 import inspect
 import glob
 import bisect
+from contextlib import contextmanager
 
 # Import six if available globally or locally from scriptbase/python
 # Python2-3 compatibility helper library.
@@ -209,3 +210,12 @@ def binary_search(array, search_for, pos_low=0, pos_high=None):
     pos_high = pos_high if pos_high is not None else len(array)
     pos = bisect.bisect_left(array, search_for, pos_low, pos_high)
     return (pos if pos != pos_high and array[pos] == search_for else -1)
+
+
+@contextmanager
+def working_directory_context(directory):
+    """Temporarily change the working directory (in a "with" block)."""
+    save_directory = os.getcwd()
+    os.chdir(directory)
+    yield
+    os.chdir(save_directory)

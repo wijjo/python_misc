@@ -88,10 +88,15 @@ import os
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 
 from . import utility
 from . import shell
 from . import console
+
+
+def _dry_run_print(message):
+    sys.stdout.write('>>> %s%s' % (message, os.linesep))
 
 
 class Command(object):  #pylint: disable=too-many-instance-attributes
@@ -180,7 +185,7 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
                 stderr=subprocess.STDOUT
             )
         else:
-            print(shell.quote_arguments(*self.args))
+            _dry_run_print(shell.quote_arguments(*self.args))
         if self.input_source and hasattr(self.input_source, 'fileno'):
             self.input_source.close()
         return self
@@ -209,13 +214,14 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
             if not self.process.stdout.closed:
                 with self.process.stdout:
                     for line in iter(self.process.stdout.readline, b''):
-                        yield line.rstrip()
+                        yield line.decode('utf8').rstrip()
 
     def run(self):
         """Run the command with output going to the console (stdout)."""
         self._check_in_with_block()
         for line in self.__iter__():
-            sys.stdout.write('%s\n' % line)
+            sys.stdout.write('%s' % line)
+            sys.stdout.write(os.linesep)
 
     def read_lines(self):
         """Run the command and return a list of output lines."""
@@ -286,7 +292,7 @@ def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
     if command_args.verbose:
         console.display_messages(_arg_string(), tag='TRACE')
     elif command_args.pause:
-        sys.stdout.write('COMMAND: %s\n[Press Enter to continue] ' % _arg_string())
+        sys.stdout.write('COMMAND: %s%s[Press Enter to continue] ' % (_arg_string(), os.linesep))
         sys.stdin.readline()
     ret = -1
     try:
@@ -367,7 +373,7 @@ class Runner(object):
                 return 'Shell command failed with return code %d: %s' % (retcode, cmdline)
         cmdlinex = self.expand(cmdline)
         if self.arg.dryrun:
-            sys.stdout.write('%s\n' % cmdlinex)
+            _dry_run_print(cmdlinex)
             return 0
         return _run_function('shell', _checker, self.arg, os.system, abort, cmdlinex)
 
@@ -375,15 +381,23 @@ class Runner(object):
         """Change working directory with path expansion."""
         directory = self.expand(directory)
         if self.arg.dryrun:
-            sys.stdout.write('cd "%s"\n' % directory)
+            _dry_run_print('cd "%s"' % directory)
         else:
             _run_function('chdir', None, self.arg, os.chdir, True, directory)
+
+    @contextmanager
+    def chdir_context(self, directory):
+        """Change and restore working directory in a "with" block."""
+        save_directory = os.getcwd()
+        self.chdir(directory)
+        yield
+        self.chdir(save_directory)
 
     def check_directory(self, path, exists):
         """Validate a directory with path expansion."""
         pathx = self.expand(path)
         if self.arg.dryrun:
-            sys.stdout.write('test -d "%s" || exit 1\n' % pathx)
+            _dry_run_print('test -d "%s" || exit 1' % pathx)
         else:
             def _checker(actual_exists, path):
                 if exists and not actual_exists:
@@ -391,6 +405,29 @@ class Runner(object):
                 if not exists and actual_exists:
                     return 'Directory "%s" already exists' % path
             _run_function('check_directory', _checker, self.arg, os.path.exists, True, pathx)
+
+    def command(self, *args):
+        """
+        Create a Command for use in a "with" block.
+
+        Obeys the dryrun option, if set.
+
+        See the Command class for more information.
+        """
+        return Command(*args).options(dryrun=self.arg.dryrun)
+
+
+    def batch(self):
+        """
+        Create a Batch object for executing multiple commands.
+
+        Obeys "dryrun" and "echo" options, if set.
+
+        See the Batch class for more information.
+        """
+        return Batch(echo=getattr(self.arg, 'echo', False),
+                     dryrun=getattr(self.arg, 'dryrun', False))
+
 
     def expand(self, str_in, expand_user=False, expand_env=False):
         """
@@ -473,7 +510,7 @@ class Batch(object):
         for quoted_command_args in self.quoted_command_args_batch:
             command_string = ' '.join(quoted_command_args)
             if self.dryrun:
-                console.info('>>> %s' % command_string)
+                _dry_run_print(command_string)
             elif self.echo:
                 console.info(command_string)
             if not self.dryrun:
