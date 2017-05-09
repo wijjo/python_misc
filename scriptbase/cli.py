@@ -591,8 +591,6 @@ def main(program_name=None,
         exec('import %s.__cli_main__' % program_name)   #pylint: disable=exec-used
     else:
         program_directory = os.path.dirname(command_line[0])
-    # Look elsewhere, e.g. under home, /usr/share, etc.?
-    command_dirs = [os.path.join(program_directory, program_name, 'plugins')]
 
     # Basic argument specs for universal options, like verbose, dry-run, and pause.
     arg_specs = _get_arg_specs()
@@ -601,6 +599,8 @@ def main(program_name=None,
     _preparse_args(command_line[1:], arg_specs)
 
     # Discover commands from discoverable cli directories.
+    # Look elsewhere, e.g. under home, /usr/share, etc.?
+    command_dirs = [os.path.join(program_directory, 'plugins')]
     _discover_commands(command_dirs)
 
     # Use program overrides provided by the @Main decorator.
