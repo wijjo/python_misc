@@ -72,7 +72,7 @@ def caller_name(skip=2):
 
 def is_string(value):
     """Return True if the object is a string type."""
-    return isinstance(value, six.string_types) or isinstance(value, bytes)  #pylint: disable=consider-merging-isinstance
+    return isinstance(value, (six.string_types, bytes))
 
 
 def is_iterable(value):
