@@ -44,35 +44,35 @@ Sample code::
 
   TIMEOUT = 60
 
-  @cli.Main('Access remote web pages', support_dryrun=True, args=[
-      cli.Integer('timeout', 'time-out in seconds', '--timeout', default=TIMEOUT)])
+  @cli.Main('Access remote web pages', support_dry_run=True, args=[
+      cli.Integer('TIMEOUT', 'time-out in seconds', '--timeout', default=TIMEOUT)])
   def main(runner):
       global TIMEOUT
-      TIMEOUT = runner.arg.timeout
+      TIMEOUT = runner.arg.TIMEOUT
 
   @cli.Command(description='download page', args=[
-      cli.String('url', 'URL of page to download'),
-      cli.Boolean('pdf', 'convert to a PDF', '--pdf')])
+      cli.String('URL', 'URL of page to download'),
+      cli.Boolean('PDF', 'convert to a PDF', '--pdf')])
   def download(runner):
-      if runner.arg.dryrun:
-          print('Download(dryrun): %s' % runner.arg.url)
-      elif runner.arg.pdf:
-          print('Download(PDF): %s' % runner.arg.url)
+      if runner.arg.DRY_RUN:
+          print('Download(DRY_RUN): %s' % runner.arg.URL)
+      elif runner.arg.PDF:
+          print('Download(PDF): %s' % runner.arg.URL)
       else:
-          print('Download(HTML): %s' % runner.arg.url)
+          print('Download(HTML): %s' % runner.arg.URL)
 
   @cli.Command(description='display various statistics', args=[
-      cli.String('url', 'URL of page to download')])
+      cli.String('URL', 'URL of page to download')])
   def show(runner):
       print('show')
 
   @cli.Command(description='display route to host', parent=show)
   def route(runner):
-      print('show_route(%s)' % runner.arg.url)
+      print('show_route(%s)' % runner.arg.URL)
 
   @cli.Command(description='display latency to host', parent=show)
   def latency(runner):
-      print('show_latency(%s)' % runner.arg.url)
+      print('show_latency(%s)' % runner.arg.URL)
 
   if __name__ == '__main__':
       cli.main()
@@ -101,16 +101,22 @@ import os
 import copy
 import inspect
 import traceback
+import re
+
+# Some (older?) Python 2.x distributions don't have argparse.
+try:
+    import argparse
+except ImportError:
+    from .python import argparse
 
 from . import command
 from . import utility
 from . import console
 from .configuration import Config
 
-try:
-    import argparse
-except ImportError:
-    from .python import argparse
+
+PROGRAM_NAME = os.path.basename(sys.argv[0])
+RE_SUBCOMMAND_USAGE = re.compile(r'^usage: (\w+) .* (\w+)$')
 
 
 class ArgumentSpec(object):
@@ -158,7 +164,53 @@ class Integer(ArgumentSpec):
         ArgumentSpec.__init__(self, dest, help_text, *args, **kwargs)
 
 
-class Verb(object):     #pylint: disable=too-many-instance-attributes
+class CustomArgumentParser(argparse.ArgumentParser):
+    """Custom argument parser."""
+
+    def __init__(self, *args, **kwargs):
+        """Custom argument parser constructor."""
+        kwargs['formatter_class'] = argparse.RawDescriptionHelpFormatter
+        # 'prog' is needed for sub-sub-commands.
+        if 'prog' in kwargs:
+            prog_words = kwargs['prog'].split()
+            kwargs['prog'] = ' '.join([prog_words[0], prog_words[-1]])
+        kwargs['add_help'] = False
+        argparse.ArgumentParser.__init__(self, *args, **kwargs)
+
+    def error(self, message):
+        """Custom error handler."""
+        if message:
+            console.error(message)
+        self.print_help(sys.stderr)
+        sys.stderr.write(os.linesep)
+        self.exit(255)
+
+    def format_help(self):
+        """Customize help output."""
+        def _edit(lines):
+            skipping = False
+            for line in lines:
+                if skipping:
+                    if line == 'optional arguments:':
+                        skipping = False
+                elif line == 'positional arguments:':
+                    skipping = True
+                if not skipping:
+                    yield line
+        default_text = argparse.ArgumentParser.format_help(self)
+        return os.linesep.join(_edit(default_text.split(os.linesep)))
+
+    def add_subparsers(self, *args, **kwargs):  #pylint: disable=arguments-differ
+        """Provide a custom sub-parser."""
+        # For some reason Python 3 needs dest set in order to get the correct
+        # function that was saved by set_defaults(func=...).
+        kwargs['dest'] = 'SUBCOMMAND'
+        # It's CustomArgumentParser's all the way down (the sub-sub-...-command heirarchy).
+        kwargs['parser_class'] = CustomArgumentParser
+        return argparse.ArgumentParser.add_subparsers(self, *args, **kwargs)
+
+
+class Verb(object):  # pylint: disable=too-many-instance-attributes
     """
     Verb class defines commands and sub-commands.
 
@@ -219,6 +271,10 @@ class Verb(object):     #pylint: disable=too-many-instance-attributes
             self.description = '(no description provided)'
         else:
             self.description = description
+        if aliases:
+            self.description += ' (alias%s: %s)' % (
+                'es' if len(aliases) > 1 else '',
+                ' '.join(aliases))
         self.is_root = is_root
         self.function = function
         self.arg_specs = []
@@ -257,24 +313,24 @@ class Verb(object):     #pylint: disable=too-many-instance-attributes
         if self.function:
             parser.set_defaults(func=self.function)
         if self.get_verbs():
-            help_text = '"help SUBCOMMAND" for details'
-            # For some reason Python 3 needs dest set in order to get the
-            # correct function that was saved by set_defaults(func=...).  Note
-            # that nested sub-commands with this use of set_defaults() is
-            # broken in Python 3 versions before 3.5.
-            subparsers = parser.add_subparsers(dest='subcommand', help=help_text)
+            subparsers = parser.add_subparsers()
             subparsers.required = True
             parsers_by_name = {'_': parser}
             for verb in self.get_verbs():
                 for verb_name in [verb.name] + list(verb.aliases):
-                    subparser = subparsers.add_parser(verb_name, description=verb.description)
+                    subparser = subparsers.add_parser(
+                        verb_name,
+                        description=verb.description)
                     parsers_by_name[verb_name] = subparser
                     verb.configure_parser(subparser)
             if self.is_root:
                 helpparser = subparsers.add_parser(
                     'help',
                     description='display command or verb help')
-                helpparser.add_argument('verbs', help='optional verb list', nargs='*')
+                helpparser.add_argument(
+                    'verbs',
+                    help='optional verb list',
+                    nargs=argparse.ZERO_OR_MORE)
                 helpparser.set_defaults(func=Verb.Help(parsers_by_name))
 
     def set_function(self, function):
@@ -314,17 +370,6 @@ class Verb(object):     #pylint: disable=too-many-instance-attributes
             self.child_verbs = sorted(self.child_verbs, key=lambda x: x.name)
             self.dirty = False
 
-    class CustomArgumentParser(argparse.ArgumentParser):
-        """Inherit from ArgumentParser for custom error handling."""
-
-        def error(self, message):
-            """Custom error handler."""
-            if message:
-                console.error(message)
-            self.print_help(sys.stderr)
-            sys.stderr.write(os.linesep)
-            self.exit(255)
-
     @classmethod
     def get_parser(cls, description, add_arg_specs):
         """Provide an argument/option parser."""
@@ -334,28 +379,28 @@ class Verb(object):     #pylint: disable=too-many-instance-attributes
         cls.root.description = description
         if add_arg_specs:
             cls.root.arg_specs.extend(add_arg_specs)
-        cls.parser = Verb.CustomArgumentParser(
-            description='  %s' % '\n  '.join(cls._description_lines()),
-            formatter_class=argparse.RawDescriptionHelpFormatter)
+        # Set up the usage message and description.
+        usage = '%(prog)s [OPTION ...] SUBCOMMAND [SUBOPTION ...] [ARG ...]'
+        description_lines = [description, '']
+        verb_usage_pairs = cls._verb_usage_pairs()
+        fmt = '  %%-%ds  %%s' % max([len(usage_pair[0]) for usage_pair in verb_usage_pairs])
+        for label, text in verb_usage_pairs:
+            description_lines.append(fmt % (label, text))
+        # Create the parser.
+        description = os.linesep.join(description_lines)
+        cls.parser = CustomArgumentParser(usage=usage, description=description)
         cls.root.configure_parser(cls.parser)
         return cls.parser
 
     @classmethod
-    def _description_lines(cls):
-        lines = ['%(prog)s [OPTION ...] SUBCOMMAND [SUBOPTION ...] [ARG ...]', '']
-        prog = os.path.basename(sys.argv[0])
+    def _verb_usage_pairs(cls):
         verb_usage_pairs = [
-            ('%s help' % prog, 'Display general help.'),
-            ('%s help SUBCOMMAND' % prog, 'Display sub-command help.'),
-        ] + [('%s %s ...' % (prog, verb.name), verb.description) for verb in cls.root.get_verbs()]
-        verb_usage_pairs = sorted(verb_usage_pairs, key=lambda x: x[0])
-        width = 0
-        for verb_usage_pair in verb_usage_pairs:
-            if len(verb_usage_pair[0]) > width:
-                width = len(verb_usage_pair[0])
-        fmt = '%%-%ds  %%s' % width
-        lines.extend([fmt % (p[0], p[1]) for p in verb_usage_pairs])
-        return lines
+            ('%s help' % PROGRAM_NAME, 'Display general help.'),
+            ('%s help SUBCOMMAND' % PROGRAM_NAME, 'Display sub-command help.'),
+        ] + [('%s %s %s' % (PROGRAM_NAME, verb.name, '...' if verb.arg_specs else ''),
+              verb.description)
+             for verb in cls.root.get_verbs()]
+        return sorted(verb_usage_pairs, key=lambda x: x[0])
 
 
 class Command(Verb):
@@ -416,7 +461,7 @@ class Main(object):     #pylint: disable=too-many-instance-attributes
                  description=None,
                  args=None,
                  support_verbose=False,
-                 support_dryrun=False,
+                 support_dry_run=False,
                  support_pause=False,
                  support_discovery=False,
                  support_plugins=False,
@@ -428,7 +473,7 @@ class Main(object):     #pylint: disable=too-many-instance-attributes
         self.description = description
         self.arg_specs = args if args else []
         self.support_verbose = support_verbose
-        self.support_dryrun = support_dryrun
+        self.support_dry_run = support_dry_run
         self.support_pause = support_pause
         self.runner_type = runner_type
         self.support_discovery = support_discovery
@@ -452,11 +497,11 @@ class Main(object):     #pylint: disable=too-many-instance-attributes
 def _get_arg_specs():
     arg_specs = copy.copy(list(Main.instance.arg_specs))
     if Main.instance.support_verbose:
-        arg_specs.append(Boolean('verbose', "display verbose messages", '-v', '--verbose'))
-    if Main.instance.support_dryrun:
-        arg_specs.append(Boolean('dryrun', "display commands without executing them", '--dry-run'))
+        arg_specs.append(Boolean('VERBOSE', "display verbose messages", '-v', '--verbose'))
+    if Main.instance.support_dry_run:
+        arg_specs.append(Boolean('DRY_RUN', "display commands without executing them", '--dry-run'))
     if Main.instance.support_pause:
-        arg_specs.append(Boolean('pause', "pause before executing each command", '--pause'))
+        arg_specs.append(Boolean('PAUSE', "pause before executing each command", '--pause'))
     return arg_specs
 
 def _preparse_args(args, arg_specs):
@@ -466,7 +511,7 @@ def _preparse_args(args, arg_specs):
         preparser.add_argument(*arg_spec.args, **arg_spec.kwargs)
     tmp_args, _ = preparser.parse_known_args(args=args)
     if Main.instance.support_verbose:
-        console.set_verbose(tmp_args.verbose)
+        console.set_verbose(tmp_args.VERBOSE)
 
 def _parse_args(args, arg_specs):
     parser = Verb.get_parser(Main.instance.description, arg_specs)
@@ -510,13 +555,17 @@ def _discover_commands(command_dirs):
 def _discover_plugins(program_name):
     if Main.instance.support_plugins:
         plugins = utility.DictObject()
-        symbols = dict(program_name=program_name)
+        symbols = dict(program_name=program_name,
+                       program_directory=Main.instance.program_directory)
         dir_paths = [
-            os.path.realpath(os.path.expanduser(os.path.expandvars(dir_path % symbols)))
+            os.path.realpath(
+                os.path.expanduser(
+                    os.path.expandvars(
+                        dir_path.format(**symbols))))
             for dir_path in [
-                os.path.join('~', '.%(program_name)s.d'),
-                '.%(program_name)s.d)',
-                os.path.join('%(program_directory)s', '%(program_name)s.d'),
+                os.path.join('~', '.{program_name}.d'),
+                '.{program_name}.d)',
+                os.path.join('{program_directory}', '{program_name}.d'),
             ]
         ]
         for dir_path in dir_paths:
@@ -546,7 +595,7 @@ def _prepare_configuration(runner):
         cfg_spec.desc = runner.expand(cfg_spec.desc)
     # Generate the file name based on the program name as .<program-name>rc.
     # Allow customization of the config file name?
-    runner.cfg = Config(runner.expand('.%(program_name)src'), *Main.instance.configuration)
+    runner.cfg = Config(runner.expand('.{program_name}rc'), *Main.instance.configuration)
     # Load the configuration.
     runner.cfg.load_for_paths('~', '.')
 
@@ -555,9 +604,9 @@ def _invoke(runner, name, func):
         func(runner)
     except KeyboardInterrupt:
         console.abort('%s interrupted by user.' % name)
-    except command.BatchError as exc:
+    except command.Batch.Error as exc:
         console.abort(exc)
-    except command.BatchFailure as exc:
+    except command.Batch.Failure as exc:
         console.abort('%s command batch failed.' % name,
                       ['return code: %d' % exc.return_code, 'command: %s' % exc.command])
     except Exception:    #pylint: disable=broad-except
@@ -623,5 +672,5 @@ def main(program_name=None,
 
     # Invoke @Command function and return the exit code.
     if hasattr(runner.arg, 'func'):
-        command_name = '@Command[%s]' % command_args.subcommand
+        command_name = '@Command[%s]' % command_args.SUBCOMMAND
         return _invoke(runner, command_name, runner.arg.func)

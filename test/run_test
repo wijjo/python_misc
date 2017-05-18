@@ -1,52 +1,96 @@
-#!/usr/bin/env bash
-cd $(dirname $(dirname "${BASH_SOURCE[0]}"))
+#!/usr/bin/env python3
+# Copyright 2017 Steven Cooper
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-usage()
-{
-    echo "
-Usage: $(basename $0) [-2|-3] [module ...]
-    -2  run python version 2 only
-    -3  run python version 3 only
-" 1>&2
-    exit 255
-}
+"""Pick and choose tests to run."""
 
-all_tests()
-{
-    local t
-    for t in test/test*.py; do
-        basename "${t:10}" .py
-    done
-}
+import sys
+import os
+import argparse
+import glob
 
-run_tests()
-{
-    local python_versions="$1"
-    test -z "$python_versions" && python_versions="2 3"
-    shift
-    local module_names="$*"
-    test -z "$module_names" && module_names="$(all_tests)"
-    local python_version
-    for python_version in $python_versions; do
-        echo -e "\n===== Python $python_version ====="
-        local module_name
-        for module_name in $module_names; do
-            echo -e "\n--- testing: $module_name ---"
-            python$python_version -m test.test_$module_name
-        done
-    done
-}
 
-python_versions="2 3"
-while getopts "23h" opt; do
-    case $opt in
-        2) python_versions=2;;
-        3) python_versions=3;;
-        h) usage;;
-        *) usage;;
-    esac
-done
-shift $((OPTIND-1))
+def error(message):
+    """Display error message."""
+    sys.stderr.write('ERROR: %s' % message)
+    sys.stderr.write(os.linesep)
 
-set -e
-run_tests "$python_versions" "$*"
+
+def run_test(python_program, test_module, test_function_name):
+    """Run one test and optionally a specific test function."""
+    print('')
+    if test_function_name:
+        print('--- testing(%s): %s.%s ---' % (python_program, test_module, test_function_name))
+        ret_code = os.system('%s -m %s %s' % (python_program, test_module, test_function_name))
+    else:
+        print('--- testing(%s): %s ---' % (python_program, test_module))
+        ret_code = os.system('%s -m %s' % (python_program, test_module))
+    if ret_code != 0:
+        sys.exit(ret_code)
+
+
+def run_test_arg(test_name, options):
+    """Run a test suite or a single test."""
+    names = test_name.split('.')
+    if len(names) > 2:
+        error('Skipping bad test name "%s".' % test_name)
+        return False
+    test_module_name = 'test_%s' % names[0]
+    test_module_path = os.path.join('test', '%s.py' % test_module_name)
+    if not os.path.exists(test_module_path):
+        error('Test module "%s" does not exist.' % test_module_path)
+        sys.exit(255)
+    test_module = 'test.%s' % test_module_name
+    test_function = names[1] if len(names) == 2 else ''
+    if options.PYTHON2 or not options.PYTHON3:
+        run_test('python2', test_module, test_function)
+    if options.PYTHON3 or not options.PYTHON2:
+        run_test('python3', test_module, test_function)
+
+
+def get_all_test_names():
+    """Get all test module names."""
+    save_dir = os.getcwd()
+    try:
+        os.chdir(os.path.dirname(os.path.realpath(__file__)))
+        return [name[5:-3] for name in sorted(glob.glob('test_*.py'))]
+    finally:
+        os.chdir(save_dir)
+
+
+def main():
+    """Main program."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-2', '--python2', dest='PYTHON2', action='store_true',
+                        help='Run Python version 2 only.')
+    parser.add_argument('-3', '--python3', dest='PYTHON3', action='store_true',
+                        help='Run Python version 3 only.')
+    parser.add_argument(dest='TESTS', nargs=argparse.ZERO_OR_MORE,
+                        help='<module> or <module>.test')
+    args = parser.parse_args()
+    # Test module names require running from this file's parent directory.
+    run_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    if os.getcwd() != run_path:
+        os.chdir(run_path)
+    try:
+        test_names = args.TESTS
+        if not test_names:
+            test_names = get_all_test_names()
+        for test_name in test_names:
+            run_test_arg(test_name, args)
+    except KeyboardInterrupt:
+        sys.exit(2)
+
+if __name__ == '__main__':
+    main()

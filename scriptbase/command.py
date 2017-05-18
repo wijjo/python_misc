@@ -95,11 +95,94 @@ from . import shell
 from . import console
 
 
-def _dry_run_print(message):
-    sys.stdout.write('>>> %s%s' % (message, os.linesep))
+class ExternalCommandError(Exception):
+    """Exception for command failure in ExternalCommandHandler sub-classes."""
+
+    pass
 
 
-class Command(object):  #pylint: disable=too-many-instance-attributes
+class ExternalCommandHandler(object):
+    """
+    Base class for command runners.
+
+    Provides surrounding logic for running external commands. Handles options,
+    including dry-run, verbose, and pause.
+
+    Used by the Command, Runner, and Batch classes in this module. Not
+    generally useful externally.
+    """
+
+    def __init__(self, **options):
+        """
+        External command handler constructor.
+
+        Noted that all valid options must be initialized here so that they can
+        be validated by set_options().
+        """
+        self.options = options
+
+    def set_options(self, **options):
+        """Apply option changes."""
+        bad_keys = [key for key in sorted(options.keys()) if key not in self.options]
+        if bad_keys:
+            console.warning('Bad set option key(s): %s' % ' '.join(bad_keys))
+        self.options.update(options)
+
+    def get_option(self, key):
+        """Get option value."""
+        if key not in self.options:
+            console.warning('Bad get option key: %s' % key)
+            return None
+        return self.options[key]
+
+    def run_command(self, *args, **options):
+        """
+        Use call-backs to run a command.
+
+        Positional arguments provide command parts.
+
+        Keyword arguments are temporary option settings.
+        """
+        def _get_option(key):
+            if key in options:
+                return options[key]
+            return self.options.get(key, False)
+        def _command_text():
+            return self.on_get_command_text(self, *args)
+        if _get_option('dry_run'):
+            sys.stdout.write('>>> ')
+            sys.stdout.write(_command_text())
+            sys.stdout.write(os.linesep)
+            return 0
+        if _get_option('verbose'):
+            console.display_messages(_command_text(), tag='TRACE')
+        elif _get_option('pause'):
+            sys.stdout.write('COMMAND: ')
+            sys.stdout.write(_command_text())
+            sys.stdout.write(os.linesep)
+            sys.stdout.write('[Press Enter to continue] ')
+            sys.stdin.readline()
+        try:
+            return self.on_invoke_command(*args)
+        except ExternalCommandError as exc:
+            self.error('External command error:', [_command_text(), exc])
+
+    def error(self, *args, **kwargs):
+        """Display error and optionally abort."""
+        error_function = console.abort if self.get_option('abort') else console.error
+        error_function(*args, **kwargs)
+
+    def on_invoke_command(self, *args):
+        """Must be implemented by a sub-class."""
+        raise NotImplementedError
+
+    @classmethod
+    def on_get_command_text(cls, *args):
+        """Override in sub-class for custom command text."""
+        return ' '.join([str(arg) for arg in args])
+
+
+class Command(object):
     """
     Run a single command with various methods for accessing results.
 
@@ -113,6 +196,8 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
 
     The return code rc member is None until outside the "with" block.
     """
+
+    #=== Command nested classes.
 
     class NotInWithBlock(RuntimeError):
         """Exception for using a Command object outside of a "with" block."""
@@ -132,68 +217,87 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
                 self,
                 'Illegal attempt to set Command options after it is running.')
 
+    class _Handler(ExternalCommandHandler):
+
+        def __init__(self, args):
+            ExternalCommandHandler.__init__(
+                self,
+                bufsize=1,
+                input_source=None,
+                capture_on_exit=True,
+                dry_run=False,
+                verbose=False,
+                pause=False,
+            )
+            self.args = args
+            self.process = None
+
+        def on_invoke_command(self):        #pylint: disable=arguments-differ
+            """
+            Customize the command invocation.
+
+            The arguments were supplied to the constructor, so no args or
+            kwargs are expected.
+            """
+            input_stream = self.get_option('input_source')
+            self.process = subprocess.Popen(
+                self.args,
+                bufsize=self.get_option('bufsize'),
+                stdin=input_stream,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT
+            )
+            if input_stream and hasattr(input_stream, 'fileno'):
+                input_stream.close()
+
+        def on_get_command_text(self):      #pylint: disable=arguments-differ
+            """
+            Customize the command display text.
+
+            The arguments were supplied to the constructor, so no args or
+            kwargs are expected.
+            """
+            return shell.quote_arguments(*self.args)
+
+    #=== Command methods
+
     def __init__(self, *args):
         """Construct with variable length command line argument list."""
-        self.args = args
         self.process = None
         self.done = False
         self.output_lines = []
-        self.capture_on_exit = True
-        self.input_source = None
-        self.dryrun = False
         self.in_with_block = False
-        self.buffer_size = 1
         self.return_code = None
+        self._handler = Command._Handler(args)
 
-    def options(self,
-                bufsize=None,
-                capture_on_exit=None,
-                input_source=None,
-                dryrun=None,
-               ):
+    def options(self, **kwargs):
         """
         Set options immediately after constructions.
 
         Returns self so that a chained call provides the "with" statement object.
 
         bufsize          buffer size, see subprocess.Popen() for more information (default=1)
-        capture_on_exit  captures remaining output to "output_lines" member if True (default=True)
         input_source     string, stream, or Command to pipe to standard input (default=None)
+        dry_run          don't execute if True
+        verbose          display verbose messages if True
+        pause            pause before executing the command if True
+        capture_on_exit  captures remaining output to "output_lines" member if True (default=True)
         """
         self._check_not_running()
-        if bufsize is not None:
-            self.buffer_size = bufsize
-        if capture_on_exit is not None:
-            self.capture_on_exit = capture_on_exit
-        if input_source is not None:
-            self.input_source = input_source
-            if not hasattr(self.input_source, 'fileno'):
-                pass
-        if dryrun is not None:
-            self.dryrun = dryrun
+        self._handler.set_options(**kwargs)
         return self
 
     def __enter__(self):
         """Open sub-process at the start of a with block."""
         self.in_with_block = True
-        if not self.dryrun:
-            self.process = subprocess.Popen(
-                self.args,
-                bufsize=self.buffer_size,
-                stdin=self.input_source,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT
-            )
-        else:
-            _dry_run_print(shell.quote_arguments(*self.args))
-        if self.input_source and hasattr(self.input_source, 'fileno'):
-            self.input_source.close()
+        self._handler.run_command()
+        self.process = self._handler.process
         return self
 
     def __exit__(self, exit_type, exit_value, exit_traceback):
         """Close sub-process and capture results at the end of a with block."""
         if self.process is not None:
-            if self.capture_on_exit:
+            if self._handler.get_option('capture_on_exit'):
                 self.output_lines.extend([line for line in self.__iter__()])
             self.return_code = self.process.wait()
 
@@ -206,10 +310,10 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
             raise Command.AlreadyRunning()
 
     def __iter__(self):
-        """Iteration to run command and yield one output line at a time."""
-        if not self.dryrun:
+        """Iteration yields an output line at a time."""
+        if not self._handler.get_option('dry_run'):
             self._check_in_with_block()
-            self.capture_on_exit = False
+            self._handler.set_options(capture_on_exit=False)
             # Work around a Python 2 readline issue (https://bugs.python.org/issue3907).
             if not self.process.stdout.closed:
                 with self.process.stdout:
@@ -279,45 +383,6 @@ class Command(object):  #pylint: disable=too-many-instance-attributes
         return input_source
 
 
-def _run_function(tag, checker, command_args, func, abort, *args, **kwargs):
-    def _arg_string():
-        sargs = str(args)
-        if sargs[-2] == ',':
-            sargs = '%s)' % sargs[:-2]
-        if kwargs:
-            skwargs = ' %s' % str(kwargs)
-        else:
-            skwargs = ''
-        return '%s%s%s' % (tag, sargs, skwargs)
-    if command_args.verbose:
-        console.display_messages(_arg_string(), tag='TRACE')
-    elif command_args.pause:
-        sys.stdout.write('COMMAND: %s%s[Press Enter to continue] ' % (_arg_string(), os.linesep))
-        sys.stdin.readline()
-    ret = -1
-    try:
-        ret = func(*args, **kwargs)
-        if checker is not None:
-            errmsg = checker(ret, *args, **kwargs)
-            if errmsg is not None:
-                if abort:
-                    console.abort(errmsg, _arg_string())
-                else:
-                    console.error(errmsg, _arg_string())
-    except Exception as exc:    #pylint: disable=broad-except
-        if abort:
-            console.abort(exc, _arg_string())
-        else:
-            console.error(exc, _arg_string())
-    return ret
-
-
-class RunnerCommandArguments(utility.DictObject):
-    """Command argument dictionary with attribute access."""
-
-    pass
-
-
 class Runner(object):
     """
     Command runner.
@@ -327,16 +392,64 @@ class Runner(object):
     template expansion functionality.
     """
 
+    #=== Runner nested classes.
+
     class VarNamespace(utility.DictObject):
         """Variable namespace is a dictionary with attribute access."""
 
         pass
 
+    class CommandArguments(utility.DictObject):
+        """Command argument dictionary with attribute access."""
+
+        pass
+
+    class _ShellCommandHandler(ExternalCommandHandler):
+
+        def on_invoke_command(self, cmd_line):                      #pylint: disable=arguments-differ
+            """Shell command invocation."""
+            ret_code = os.system(cmd_line)
+            if ret_code != 0:
+                raise ExternalCommandError('Shell command failed with return code %d' % ret_code)
+            return ret_code
+
+        def on_get_command_text(self, cmd_line):                    #pylint: disable=arguments-differ
+            """Shell command display text."""
+            return cmd_line
+
+    class _ChangeDirectoryCommandHandler(ExternalCommandHandler):
+
+        def on_invoke_command(self, directory):                     #pylint: disable=arguments-differ
+            """Change directory invocation."""
+            try:
+                os.chdir(directory)
+            except (IOError, OSError) as exc:
+                raise ExternalCommandError('Directory change error "%s"' % str(exc))
+
+        def on_get_command_text(self, directory):                   #pylint: disable=arguments-differ
+            """Change directory display text."""
+            return 'cd %s' % shell.quote_argument(directory)
+
+    class _CheckDirectoryCommandHandler(ExternalCommandHandler):
+
+        def on_invoke_command(self, path, exists):                  #pylint: disable=arguments-differ
+            """Check directory invocation."""
+            actual_exists = os.path.exists(path)
+            if exists and not actual_exists:
+                return 'Directory "%s" does not exist' % path
+            if not exists and actual_exists:
+                return 'Directory "%s" already exists' % path
+
+        def on_get_command_text(self, path, exists):                #pylint: disable=arguments-differ
+            """Check directory display text."""
+            return 'test -d %s %s exit 1' % (shell.quote_argument(path), '||' if exists else '&&')
+
+    #=== Runner methods.
+
     def __init__(self,      #pylint: disable=too-many-arguments
                  command_args,
                  program_name=None,
                  program_directory=None,
-                 expand_with_format=False,
                  var=None):
         """
         Construct runner.
@@ -345,45 +458,47 @@ class Runner(object):
             1) sequence providing command line arguments
 
         Keyword arguments:
-            program_name        program name override
-            program_directory   program directory override
-            expand_with_format  expand() uses format() instead of '%' if True
-            var                 symbol dictionary for string expansion
+            program_name       program name override
+            program_directory  program directory override
+            var                symbol dictionary for string expansion
         """
         self.arg = command_args
-        self.program_name = program_name
-        self.program_directory = program_directory
-        self.expand_with_format = expand_with_format
         # Default program name and directory are based on the command line arguments.
-        if not self.program_name:
-            self.program_name = os.path.basename(sys.argv[0])
-        if not self.program_directory:
-            self.program_directory = os.path.dirname(sys.argv[0])
+        if not program_name:
+            program_name = os.path.basename(sys.argv[0])
+        if not program_directory:
+            program_directory = os.path.dirname(sys.argv[0])
         # Application-specific variables are accessible through the "var" namespace.
         var_dict = {} if var is None else var
         self.var = Runner.VarNamespace(
-            program_name=self.program_name,
-            program_directory=self.program_directory,
+            program_name=program_name,
+            program_directory=program_directory,
             **var_dict)
+        # Option dictionary provided to generated Command and Batch objects.
+        self.options = dict(
+            dry_run=getattr(self.arg, 'DRY_RUN', False),
+            verbose=getattr(self.arg, 'VERBOSE', False),
+            pause=getattr(self.arg, 'PAUSE', False),
+        )
+        # Command handlers for various external actions.
+        self._handlers = utility.DictObject(
+            shell_command=Runner._ShellCommandHandler(**self.options),
+            change_directory=Runner._ChangeDirectoryCommandHandler(**self.options),
+            check_directory=Runner._CheckDirectoryCommandHandler(**self.options),
+        )
 
-    def shell(self, cmdline, abort=True):
-        """Run a shell command line."""
-        def _checker(retcode, cmdline):
-            if retcode != 0:
-                return 'Shell command failed with return code %d: %s' % (retcode, cmdline)
-        cmdlinex = self.expand(cmdline)
-        if self.arg.dryrun:
-            _dry_run_print(cmdlinex)
-            return 0
-        return _run_function('shell', _checker, self.arg, os.system, abort, cmdlinex)
+    def shell(self, cmd_line, abort=True):
+        """Run a shell command from a single string or split arguments."""
+        if utility.is_non_string_sequence(cmd_line):
+            cmd_line_expanded = self.expand(shell.quote_arguments(*cmd_line))
+        else:
+            cmd_line_expanded = self.expand(cmd_line)
+        return self._handlers.shell_command.run_command(cmd_line_expanded, abort=abort)
 
     def chdir(self, directory):
         """Change working directory with path expansion."""
-        directory = self.expand(directory)
-        if self.arg.dryrun:
-            _dry_run_print('cd "%s"' % directory)
-        else:
-            _run_function('chdir', None, self.arg, os.chdir, True, directory)
+        directory_expanded = self.expand(directory)
+        self._handlers.change_directory.run_command(directory_expanded)
 
     @contextmanager
     def chdir_context(self, directory):
@@ -395,39 +510,27 @@ class Runner(object):
 
     def check_directory(self, path, exists):
         """Validate a directory with path expansion."""
-        pathx = self.expand(path)
-        if self.arg.dryrun:
-            _dry_run_print('test -d "%s" || exit 1' % pathx)
-        else:
-            def _checker(actual_exists, path):
-                if exists and not actual_exists:
-                    return 'Directory "%s" does not exist' % path
-                if not exists and actual_exists:
-                    return 'Directory "%s" already exists' % path
-            _run_function('check_directory', _checker, self.arg, os.path.exists, True, pathx)
+        return self._handlers.check_directory.run_command(self.expand(path), exists)
 
     def command(self, *args):
         """
         Create a Command for use in a "with" block.
 
-        Obeys the dryrun option, if set.
+        Obeys the DRY_RUN option, if set.
 
         See the Command class for more information.
         """
-        return Command(*args).options(dryrun=self.arg.dryrun)
-
+        return Command(*args).options(**self.options)
 
     def batch(self):
         """
         Create a Batch object for executing multiple commands.
 
-        Obeys "dryrun" and "echo" options, if set.
+        Obeys the "DRY_RUN" option, if set.
 
         See the Batch class for more information.
         """
-        return Batch(echo=getattr(self.arg, 'echo', False),
-                     dryrun=getattr(self.arg, 'dryrun', False))
-
+        return Batch(**self.options)
 
     def expand(self, str_in, expand_user=False, expand_env=False):
         """
@@ -446,41 +549,81 @@ class Runner(object):
                     str_out = os.path.expandvars(str_out)
                 if expand_user:
                     str_out = os.path.expanduser(str_out)
-                if self.expand_with_format:
-                    str_out = str_out.format(self.var)
-                else:
-                    str_out = str_out % self.var
-            except ValueError as exc:
-                console.abort(exc, str_in)
+                # Expand using both format() and '%' operator.
+                str_out = str_out.format(**self.var) % self.var
+            except (ValueError, KeyError) as exc:
+                console.abort('Runner.expand() error.', [
+                    '  input: %s' % str_in,
+                    'symbols: %s' % str(self.var),
+                    exc])
         return str_out
-
-
-class BatchError(Exception):
-    """Exception for batch errors prior to execution."""
-
-    pass
-
-
-class BatchFailure(Exception):
-    """Exception for batch errors during execution."""
-
-    def __init__(self, command, return_code):
-        """Constructor adds a hard-coded string and saves the command and return code."""
-        Exception.__init__(self, 'Command batch failed')
-        self.command = command
-        self.return_code = return_code
 
 
 class Batch(object):
     """Build and execute a batch of shell commands (blocking)."""
 
-    def __init__(self, echo=False, dryrun=False):
+    #=== Batch nested classes.
+
+    class Error(Exception):
+        """Exception for batch errors prior to execution."""
+
+        pass
+
+    class Failure(Exception):
+        """Exception for batch errors during execution."""
+
+        def __init__(self, command, return_code):
+            """Constructor adds a hard-coded string and saves the command and return code."""
+            Exception.__init__(self, 'Command batch failed')
+            self.command = command
+            self.return_code = return_code
+
+    class _CommandHandler(ExternalCommandHandler):
+
+        def __init__(self, **options):
+            """Batch command handler constructor."""
+            ExternalCommandHandler.__init__(self, **options)
+            self.temporary_paths = []
+
+        def on_invoke_command(self, cmd_line):  # pylint: disable=arguments-differ
+            """Shell command invocation."""
+            ret_code = os.system(cmd_line)
+            if ret_code != 0:
+                self.delete_temporary_files()
+                raise Batch.Failure(cmd_line, ret_code)
+            return ret_code
+
+        def on_get_command_text(self, cmd_line):  # pylint: disable=arguments-differ
+            """Batch command display text."""
+            return cmd_line
+
+        def add_temporary_path(self, path):
+            """Add a path to clean up when an error occurs."""
+            self.temporary_paths.append(path)
+
+        def delete_temporary_files(self):
+            """Delete intermediate files after a batch failure occurs."""
+            for path in self.temporary_paths:
+                if os.path.exists(path):
+                    try:
+                        if os.path.isdir(path):
+                            console.info('Delete partial directory: %s' % path)
+                            shutil.rmtree(path)
+                        else:
+                            console.info('Delete partial file: %s' % path)
+                            os.remove(path)
+                    except (IOError, OSError) as exc:
+                        console.error(
+                            'Unable to remove partial output path: %s' % path, exc)
+
+    #=== Batch methods.
+
+    def __init__(self, **options):
         """Batch constructor initializes an empty batch."""
-        self.echo = echo
-        self.dryrun = dryrun
         self.quoted_command_args_batch = []
         self.index = 0
         self.error_deletion_paths = []
+        self._handler = Batch._CommandHandler(**options)
 
     def add_command(self, *command_args):
         """Add a command specified as separate arguments to the batch."""
@@ -498,26 +641,18 @@ class Batch(object):
     def rewind(self, index=0):
         """Rewind the current command index."""
         if index < 0 or index >= len(self.quoted_command_args_batch):
-            raise BatchError('Bad rewind index: %d' % index)
+            raise Batch.Error('Bad rewind index: %d' % index)
         self.index = index
 
     def add_error_deletion_path(self, path):
         """Add a path to clean up when an error occurs."""
-        self.error_deletion_paths.append(path)
+        self._handler.add_temporary_path(path)
 
     def run(self):
         """Run the batch."""
         for quoted_command_args in self.quoted_command_args_batch:
             command_string = ' '.join(quoted_command_args)
-            if self.dryrun:
-                _dry_run_print(command_string)
-            elif self.echo:
-                console.info(command_string)
-            if not self.dryrun:
-                return_code = os.system(command_string)
-                if return_code != 0:
-                    self.handle_failure_cleanup()
-                    raise BatchFailure(command_string, return_code)
+            self._handler.run_command(command_string)
 
     def handle_failure_cleanup(self):
         """
@@ -525,22 +660,12 @@ class Batch(object):
 
         Make sure to call this base implementation if it is overridden.
         """
-        for path in self.error_deletion_paths:
-            if os.path.exists(path):
-                try:
-                    if os.path.isdir(path):
-                        console.info('Delete partial directory: %s' % path)
-                        shutil.rmtree(path)
-                    else:
-                        console.info('Delete partial file: %s' % path)
-                        os.remove(path)
-                except (IOError, OSError) as exc:
-                    console.error('Unable to remove partial output path: %s' % path, exc)
+        self._handler.delete_temporary_files()
 
     def _current_command(self):
         index = self.index - 1
         if index < 0 or index >= len(self.quoted_command_args_batch):
-            raise(BatchError('No command exists at batch index: %d' % index))
+            raise(Batch.Error('No command exists at batch index: %d' % index))
         return self.quoted_command_args_batch[index]
 
     @classmethod

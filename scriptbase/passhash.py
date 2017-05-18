@@ -28,6 +28,8 @@ import sys
 import re
 import ctypes
 
+from . import utility
+
 # This code was converted from legacy Javascript code.
 # Python style suffers a bit.
 #pylint: disable=invalid-name,too-many-locals,too-many-arguments
@@ -176,7 +178,7 @@ def _rol(num, cnt):
 def _str2binb(str_value):
     bin_value_list = [0] * (((len(str_value) * BITS_PER_CHARACTER) >> 5) + 1)
     mask = (1 << BITS_PER_CHARACTER) - 1
-    for char_index, char_value in enumerate(str):
+    for char_index, char_value in enumerate(str_value):
         bin_value_index = (char_index * BITS_PER_CHARACTER) >> 5
         bin_value = (ord(char_value) & mask) << (
             32 - BITS_PER_CHARACTER - (char_index * BITS_PER_CHARACTER) % 32)
@@ -206,7 +208,8 @@ def _binb2b64(binarray):
     return str_value
 
 
-class _Log(object):
+class Log(object):
+    """Logger for password hasher."""
 
     class _Entry(object):
         def __init__(self, tag, typ, msg):
@@ -215,11 +218,13 @@ class _Log(object):
             self.msg = msg
 
     def __init__(self):
+        """Log constructor."""
         self.entries = []
         self.verbosity = 0
 
     def __del__(self):
-        self._flush()
+        """Flush log before logger goes away."""
+        self.flush()
 
     def dump(self, level, *args, **kwargs):
         """Dump args and keyword args."""
@@ -241,15 +246,16 @@ class _Log(object):
             if hasattr(arg, '__getitem__') and hasattr(arg, 'keys'):
                 for kw in arg:
                     tv = get_type_value(arg[kw], hex_value)
-                    self.entries.append(_Log._Entry(kw, tv.type_name, tv.value))
+                    self.entries.append(Log._Entry(kw, tv.type_name, tv.value))
             else:
                 tv = get_type_value(arg, hex_value)
-                self.entries.append(_Log._Entry('', tv.type_name, tv.value))
+                self.entries.append(Log._Entry('', tv.type_name, tv.value))
         for kw in kwargs:
             tv = get_type_value(kwargs[kw], hex_value)
-            self.entries.append(_Log._Entry(kw, tv.type_name, tv.value))
+            self.entries.append(Log._Entry(kw, tv.type_name, tv.value))
 
-    def _flush(self):
+    def flush(self):
+        """Flush log."""
         try:
             if self.entries:
                 if self.verbosity > 0:
@@ -269,7 +275,7 @@ class _Log(object):
             sys.exit(255)
 
 
-log = _Log()
+log = Log()
 
 
 def get_type_value(value, as_hex=False):
@@ -291,11 +297,9 @@ def get_type_value(value, as_hex=False):
         return _TypeValue('Integer', str(value))
 
     def _check_string():
-        try:
-            value + ''  #pylint: disable=pointless-statement
+        if utility.is_string(value):
             return _TypeValue('String[%d]' % len(value), value)
-        except ValueError:
-            return None
+        return None
 
     def _check_dict():
         if not hasattr(value, '__getitem__') or not hasattr(value, 'keys'):

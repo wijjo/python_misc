@@ -137,7 +137,7 @@ def verbose_info(*msgs, **symbols):
     or format() string "{<name>}" tags. Both tag styles will work.
     """
     if Global.VERBOSE:
-        display_messages(msgs, symbols=symbols, tag='INFO2')
+        display_messages(msgs, symbols=symbols, tag='TRACE')
 
 
 def debug(*msgs, **symbols):
@@ -438,7 +438,7 @@ class Context(object):
     def verbose_info(self, *msgs, **symbols):
         """See the module level function for more information."""
         if Global.VERBOSE:
-            self.display_messages(msgs, symbols=symbols, tag='INFO2')
+            self.display_messages(msgs, symbols=symbols, tag='TRACE')
 
     def warning(self, *msgs, **symbols):
         """See the module level function for more information."""
@@ -474,11 +474,11 @@ class Context(object):
 class PasswordProvider(object):
     """Class used to receive and cache a password on demand."""
 
-    def __init__(self, dryrun=False):
+    def __init__(self, dry_run=False):
         """Constructor with call-back and messages for display."""
         self.message = 'A password is required.'
         self.password = None
-        if dryrun:
+        if dry_run:
             self.password = 'PASSWORD'
 
     @classmethod

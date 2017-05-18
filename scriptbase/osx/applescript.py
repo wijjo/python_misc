@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""AppleScript utility functions."""
 
 from .. import command
 
 def run_applescript(*lines):
+    """Run AppleScript code lines."""
     args = ['osascript']
     for line in lines:
         for subline in line.split('\n'):
@@ -27,5 +29,6 @@ def run_applescript(*lines):
 
 
 def run_application_applescript(app, *lines):
+    """Run AppleScript code lines for a target application."""
     lines2 = ['tell application "%s"' % app] + list(lines) + ['end tell']
     return run_applescript(*lines2)

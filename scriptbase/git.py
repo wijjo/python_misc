@@ -19,7 +19,7 @@ import re
 
 from . import console
 from . import utility
-from .command import Command, Runner, RunnerCommandArguments, Batch
+from .command import Command, Runner, Batch
 
 
 GITHUB_ROOT_CONFIG = os.path.expanduser('~/.github_root')
@@ -263,25 +263,31 @@ def is_git_version_newer(min_version):
     return version_number_compare(version, min_version) >= 0
 
 
-def create_branch(url, branch, ancestor=None, create_remote=False, dryrun=False, verbose=False):    #pylint: disable=too-many-arguments
+def create_branch(      # pylint: disable=too-many-arguments
+        url,
+        branch,
+        ancestor=None,
+        create_remote=False,
+        dry_run=False,
+        verbose=False):
     """Create a new branch."""
-    runner = Runner(RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner = Runner(Runner.CommandArguments(dry_run=dry_run, verbose=verbose))
     runner.var.branch = branch
     runner.var.ancestor = ancestor if ancestor else 'master'
     # Create local branch.
     if branch != 'master':
-        runner.shell('git branch %(branch)s origin/%(ancestor)s')
+        runner.shell('git branch {branch} origin/{ancestor}')
     # Create remote branch?
     if create_remote:
-        create_remote_branch(url, branch, dryrun=dryrun, verbose=verbose)
+        create_remote_branch(url, branch, dry_run=dry_run, verbose=verbose)
 
 
-def create_remote_branch(url, branch, dryrun=False, verbose=False):
+def create_remote_branch(url, branch, dry_run=False, verbose=False):
     """Create a new remote branch."""
-    runner = Runner(RunnerCommandArguments(dryrun=dryrun, verbose=verbose))
+    runner = Runner(Runner.CommandArguments(dry_run=dry_run, verbose=verbose))
     runner.var.branch = branch
     remote_exists = False
-    if not dryrun:
+    if not dry_run:
         if url is None:
             url = get_repository_url()
             if url is None:
@@ -290,16 +296,16 @@ def create_remote_branch(url, branch, dryrun=False, verbose=False):
                 remote_exists = remote_branch_exists(url, branch, verbose=verbose)
     if not remote_exists:
         console.info(runner.expand('Creating remote branch {branch}...'))
-        runner.shell('git push origin %(branch)s:%(branch)s')
+        runner.shell('git push origin {branch}:{branch}')
     # Check out branch.
-    runner.shell('git checkout %(branch)s')
+    runner.shell('git checkout {branch}')
     # Set up remote tracking.
     if branch != 'master' and not remote_exists:
         console.info('Setting local branch to track to remote...')
         if is_git_version_newer('1.8'):
-            runner.shell('git branch --set-upstream-to origin/%(branch)s')
+            runner.shell('git branch --set-upstream-to origin/{branch}')
         else:
-            runner.shell('git branch --set-upstream %(branch)s origin/%(branch)s')
+            runner.shell('git branch --set-upstream {branch} origin/{branch}')
 
 
 def get_repository_url():
@@ -320,11 +326,11 @@ def iter_submodules():
                 print(line)
 
 
-def rename_branch(branch, remote_name=None, rename_remote=False, dryrun=False):
+def rename_branch(branch, remote_name=None, rename_remote=False, dry_run=False):
     """Rename the local and (optionally) the remote branch."""
     old_local = get_local_branch()
     new_local = branch
-    batch = Batch(dryrun=dryrun)
+    batch = Batch(dry_run=dry_run)
     batch.add_command('git', 'branch', '-m', old_local, new_local)
     if rename_remote:
         new_remote = remote_name if remote_name else new_local
