@@ -130,10 +130,13 @@ class YAMLSyntax(SyntaxBase):
             if spec.desc:
                 writer.comment(spec.desc)
             value_type = type(spec.value)
-            if value_type is tuple or value_type is list:
+            if isinstance(value_type, (tuple, list)):
                 writer.code('%s:' % spec.name)
                 if spec.value:
                     for value in spec.value:
+                        str_value = str(value)
+                        if str_value and not str_value[0].isalnum():
+                            str_value = yam
                         writer.code('  - %s' % str(value))
                 else:
                     writer.code('  -')
