@@ -168,7 +168,8 @@ def import_module_path(module_source_path, module_name=None):
             spec.loader.exec_module(module)
         else:
             from importlib.machinery import SourceFileLoader
-            module = SourceFileLoader(module_name, module_source_path).load_module()    #pylint: disable=deprecated-method
+            module_loader = SourceFileLoader(module_name, module_source_path)
+            module = module_loader.load_module()    #pylint: disable=deprecated-method,no-value-for-parameter
     else:
         sys.stderr.write('Python %d is not supported.' % sys.version_info.major)
         sys.stderr.write(os.linesep)
