@@ -195,9 +195,9 @@ def header(*msgs, **symbols):
     or format() string "{<name>}" tags. Both tag styles will work.
     """
     line_separator = '=' * 70
-    display_messages('', line_separator)
-    display_messages(level=1, *msgs, **symbols)
-    display_messages(line_separator, '')
+    display_messages(['', line_separator])
+    display_messages(msgs, level=1, symbols=symbols)
+    display_messages([line_separator, ''])
 
 
 def pause(*msgs, **symbols):
@@ -207,7 +207,7 @@ def pause(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    display_messages('', *msgs, **symbols)
+    display_messages([''] + list(msgs), symbols=symbols)
     response = '?'
     while response and response not in ('y', 'yes', 'n', 'no'):
         sys.stdout.write('>>> Continue? (Y|n) ')

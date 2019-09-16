@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 from glob import glob
+from decimal import Decimal
 
 from . import command
 from . import console
@@ -98,8 +99,11 @@ def purge_versions(path, suffix, num_keep, reverse=False):
     return num_purge
 
 
-class Volume:
+class DiskVolume:
     """Data for a disk volume."""
+
+    unit_labels = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB']
+
     def __init__(self, disk_dev, volume_dev, filesystem, size, name, uuid, mountpoint):
         self.disk_dev = disk_dev
         self.raw_disk_dev = '/dev/r{}'.format(self.disk_dev)
@@ -109,6 +113,35 @@ class Volume:
         self.name = name
         self.uuid = uuid
         self.mountpoint = mountpoint
+
+    @classmethod
+    def format_disk_size(cls, size, places=2):
+        """Return adjusted size string with unit."""
+        threshold = 1000 ** (len(cls.unit_labels) - 1)
+        for i in range(len(cls.unit_labels) - 1, 0, -1):
+            if size >= threshold:
+                value_str = str(Decimal(size) / threshold)
+                dec_pos = value_str.find('.')
+                if dec_pos == -1:
+                    return '{}.00 {}'.format(value_str, cls.unit_labels[i])
+                value_places = len(value_str) - dec_pos - 1
+                if value_places < places:
+                    zeros = '0' * (places - value_places)
+                    return '{}{} {}'.format(value_str, zeros, cls.unit_labels[i])
+                if value_places > places:
+                    return '{} {}'.format(value_str[:(places - value_places)], cls.unit_labels[i])
+                return (value_str, cls.unit_labels[i])
+            threshold //= 1000
+        return '{} {}'.format(size, cls.unit_labels[0])
+
+    def short_summary(self):
+        """Short summary string to for user consumption."""
+        return 'label: {label}, disk: {disk}, volume: {volume}, size: {size}'.format(
+            label=self.name,
+            disk=self.disk_dev,
+            volume=self.volume_dev,
+            size=self.format_disk_size(self.size),
+        )
 
 
 def volumes_list():
@@ -122,7 +155,7 @@ def volumes_list():
     for disk_or_partition in plistlib.loads(
             proc.stdout)['AllDisksAndPartitions']:
         for volume in disk_or_partition.get('Partitions', []):
-            volumes.append(Volume(
+            volumes.append(DiskVolume(
                 disk_or_partition['DeviceIdentifier'],
                 volume.get('DeviceIdentifier'),
                 volume.get('Content'),
@@ -165,18 +198,54 @@ def volume_for_identifier(identifier):
     return volumes[0]
 
 
-def gzip_device(device_path, output_path):
-    """Write input stream to gzip'ed output file."""
-    gzip_cmd = shell.find_executable('pigz') or shell.find_executable('gzip')
-    if not gzip_cmd:
-        console.abort('No gzip command found.')
-    # Otherwise use pigz for faster multi-core compression.
-    console.info('Compressing with "pigz". Use CTRL-T for status.')
-    cmd = 'sudo dd if={input} bs=1M | {gzip} -c -f - > {output}'.format(
-        input=device_path,
-        gzip=gzip_cmd,
-        output=output_path)
+def create_device_image(device_path, output_path, compression=None):
+    """
+    Copy input device to gzip-compressed output file.
+
+    "compression" can only be "gzip" for now.
+    """
+    if compression:
+        if compression != 'gzip':
+            console.abort('Bad create_device_image() compression type: {}'.format(compression))
+        for compressor in ['pigz', 'gzip']:
+            if shell.find_executable(compressor):
+                break
+        else:
+            console.abort('No gzip compressor program (pigz or gzip) was found.')
+        cmd = 'sudo dd if={} bs=1M | {} -c -f - > "{}"'.format(
+            device_path, compressor, output_path)
+        info_text = 'Reading, compressing, and writing image with dd and {}.'.format(compressor)
+    else:
+        cmd = 'sudo dd if={} of="{}" bs=1M'.format(device_path, output_path)
+        info_text = 'Reading device and writing image with dd.'
+    console.info([info_text, 'Press CTRL-T for dd write status.'])
     console.info(cmd)
     retcode = os.system(cmd)
     if retcode != 0:
-        console.abort('Output command failed with return code {}.'.format(retcode))
+        console.abort('Device image creation command failed with return code {}.'.format(retcode))
+
+
+def restore_device_image(device_path, input_path, compression=None):
+    """
+    Uncompress input file and copy to output device.
+
+    "compression" can only be "gzip" for now.
+    """
+    if compression:
+        if compression != 'gzip':
+            console.abort('Bad create_device_image() compression type: {}'.format(compression))
+        gzcat_cmd = shell.find_executable('gzcat')
+        if not gzcat_cmd:
+            console.abort('No gzcat command found.')
+        info_text = 'Using gzcat to uncompress image file and dd to write to device.'
+        # 64K buffer seemed to maximize throughput.
+        cmd = '{} "{}" | sudo dd of={} bs=64K'.format(gzcat_cmd, input_path, device_path)
+    else:
+        info_text = 'Using gzcat to uncompress image file and dd to write to device.'
+        # Need to test buffer size.
+        cmd = 'sudo dd if="{}" of={} bs=1M'.format(input_path, device_path)
+    console.info([info_text, 'Press CTRL-T for dd read status.'])
+    console.info(cmd)
+    retcode = os.system(cmd)
+    if retcode != 0:
+        console.abort('Image restore command failed with return code {}.'.format(retcode))
