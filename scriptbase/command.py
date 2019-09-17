@@ -1,4 +1,4 @@
-# Copyright 2016-17 Steven Cooper
+# Copyright 2016-19 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -383,6 +383,50 @@ class Command(object):
         return input_source
 
 
+class CommandContext(utility.DictObject):
+    """Local data with console methods enhanced with automatic formatting."""
+
+    def info(self, *msgs, **symbols):
+        """Display informational message(s)."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.info(*msgs2)
+
+    def verbose_info(self, *msgs, **symbols):
+        """Display informational message(s) if verbose output is enabled."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.verbose_info(*msgs2)
+
+    def debug(self, *msgs, **symbols):
+        """Display debug message(s)."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.debug(*msgs2)
+
+    def warning(self, *msgs, **symbols):
+        """Display warning message(s)."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.warning(*msgs2)
+
+    def error(self, *msgs, **symbols):
+        """Display error message(s)."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.error(*msgs2)
+
+    def abort(self, *msgs, **symbols):
+        """Display error message(s) and exit with return code 255."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.abort(*msgs2)
+
+    def header(self, *msgs, **symbols):
+        """Display header message(s)."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.header(*msgs2)
+
+    def pause(self, *msgs, **symbols):
+        """Display message(s) and wait for user confirmation to continue."""
+        msgs2 = [self.format(msg, **symbols) for msg in msgs]
+        console.pause(*msgs2)
+
+
 class Runner(object):
     """
     Command runner.
@@ -486,6 +530,8 @@ class Runner(object):
             change_directory=Runner._ChangeDirectoryCommandHandler(**self.options),
             check_directory=Runner._CheckDirectoryCommandHandler(**self.options),
         )
+        # Stack of context data for message formatting, etc..
+        self._context_stack = []
 
     def shell(self, cmd_line, abort=True):
         """Run a shell command from a single string or split arguments."""
@@ -557,6 +603,18 @@ class Runner(object):
                     'symbols: %s' % str(self.var),
                     exc])
         return str_out
+
+    @contextmanager
+    def context(self, **kwargs):
+        """
+        Context manager for saving a state stack.
+
+        Provides temporary scoped data for message formatting methods below.
+        """
+        ctx = CommandContext(self.var, **kwargs)
+        self._context_stack.append(ctx)
+        yield ctx
+        self._context_stack.pop()
 
 
 class Batch(object):

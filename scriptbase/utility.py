@@ -1,4 +1,4 @@
-# Copyright 2016-17 Steven Cooper
+# Copyright 2016-19 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -125,6 +125,12 @@ class DictObject(dict):
     def __setattr__(self, name, value):
         """Write access to elements as attributes."""
         self[name] = value
+
+    def format(self, template, *args, **kwargs):
+        """Format string using members and arguments."""
+        kwargs2 = {}
+        kwargs2.update(self, **kwargs)
+        return template.format(*args, **kwargs2)
 
 
 def pluralize(word, quantity, suffix=None, replacement=None):

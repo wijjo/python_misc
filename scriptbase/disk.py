@@ -1,4 +1,4 @@
-# Copyright 2016-17 Steven Cooper
+# Copyright 2016-19 Steven Cooper
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ from decimal import Decimal
 from . import command
 from . import console
 from . import shell
+from . import utility
 
 
 RE_MOUNT = re.compile('^(/[a-z0-9_/]+) on (/[a-z0-9_/ ]+)( [(][^)]*[)])?', re.IGNORECASE)
@@ -192,60 +193,107 @@ def volume_for_identifier(identifier):
     """Find exactly one volume by identifier (see volumes_for_identifier())."""
     volumes = volumes_for_identifier(identifier)
     if not volumes:
-        console.abort('No volume for "{}" was found.'.format(identifier))
+        console.abort('No volume "{}" was found.'.format(identifier))
     if len(volumes) != 1:
         console.abort('There are {} volumes for "{}".'.format(len(volumes), identifier))
     return volumes[0]
 
 
-def create_device_image(device_path, output_path, compression=None):
-    """
-    Copy input device to gzip-compressed output file.
+class Compressor:
+    """Compressor data."""
 
-    "compression" can only be "gzip" for now.
-    """
-    if compression:
-        if compression != 'gzip':
-            console.abort('Bad create_device_image() compression type: {}'.format(compression))
-        for compressor in ['pigz', 'gzip']:
-            if shell.find_executable(compressor):
+    def __init__(self, name, uncompress_cmd, *compress_cmds):
+        self.name = name
+        self.uncompress_cmd = uncompress_cmd
+        self.compress_cmds = compress_cmds
+
+    def get_compress_command(self):
+        """Check for and return compress command."""
+        progs = []
+        cmd = None
+        for compress_cmd in self.compress_cmds:
+            prog = compress_cmd.split()[0]
+            if shell.find_executable(prog):
+                cmd = compress_cmd
+                break
+            progs.append(prog)
+        else:
+            console.abort('Unable to find {} compression program: {}'
+                        .format(self.name, ' '.join(progs)))
+        return cmd
+
+    def get_expand_command(self):
+        """Check for and return expansion command."""
+        prog = self.uncompress_cmd.split()[0]
+        if not shell.find_executable(prog):
+            console.abort('Unable to find {} expansion program: {}'.format(self.name, prog))
+        return self.uncompress_cmd
+
+
+class Compressors:
+    """Access compression/expansion commands."""
+
+    compressors = [
+        Compressor('gzip', 'gzcat', 'pigz -c -f -', 'gzip -c -f -'),
+        Compressor('xz', 'xzcat', 'xz -c -T0 -f -'),
+    ]
+
+    @classmethod
+    def get_compressor(cls, name):
+        """Return an appropriate compressor, if available."""
+        compressor = None
+        for check_compressor in cls.compressors:
+            if check_compressor.name == name:
+                compressor = check_compressor
                 break
         else:
-            console.abort('No gzip compressor program (pigz or gzip) was found.')
-        cmd = 'sudo dd if={} bs=1M | {} -c -f - > "{}"'.format(
-            device_path, compressor, output_path)
-        info_text = 'Reading, compressing, and writing image with dd and {}.'.format(compressor)
-    else:
-        cmd = 'sudo dd if={} of="{}" bs=1M'.format(device_path, output_path)
-        info_text = 'Reading device and writing image with dd.'
-    console.info([info_text, 'Press CTRL-T for dd write status.'])
-    console.info(cmd)
-    retcode = os.system(cmd)
-    if retcode != 0:
-        console.abort('Device image creation command failed with return code {}.'.format(retcode))
+            console.abort('No {} compressor found.'.format(name))
+        return compressor
+
+    @classmethod
+    def get_compress_command(cls, name):
+        """Return compression command, if available."""
+        compressor = cls.get_compressor(name)
+        return compressor.get_compress_command()
+
+    @classmethod
+    def get_expand_command(cls, name):
+        """Return expansion command, if available."""
+        compressor = cls.get_compressor(name)
+        return compressor.get_expand_command()
 
 
-def restore_device_image(device_path, input_path, compression=None):
-    """
-    Uncompress input file and copy to output device.
-
-    "compression" can only be "gzip" for now.
-    """
+def backup_device(device_path, output_path, compression=None):  #pylint: disable=unused-argument
+    """Copy input device to gzip-compressed output file."""
+    ctx = utility.DictObject(**locals())
     if compression:
-        if compression != 'gzip':
-            console.abort('Bad create_device_image() compression type: {}'.format(compression))
-        gzcat_cmd = shell.find_executable('gzcat')
-        if not gzcat_cmd:
-            console.abort('No gzcat command found.')
-        info_text = 'Using gzcat to uncompress image file and dd to write to device.'
-        # 64K buffer seemed to maximize throughput.
-        cmd = '{} "{}" | sudo dd of={} bs=64K'.format(gzcat_cmd, input_path, device_path)
+        ctx.compress_cmd = Compressors.get_compress_command(compression)
+        ctx.compress_prog = ctx.compress_cmd.split()[0]
+        cmd = 'sudo dd if={device_path} bs=1M | {compress_cmd} > "{output_path}"'
+        msg = 'Reading device with dd and writing image with {compress_prog}.'
     else:
-        info_text = 'Using gzcat to uncompress image file and dd to write to device.'
-        # Need to test buffer size.
-        cmd = 'sudo dd if="{}" of={} bs=1M'.format(input_path, device_path)
-    console.info([info_text, 'Press CTRL-T for dd read status.'])
+        cmd = 'sudo dd if={device_path} of="{output_path}" bs=1M'
+        msg = 'Reading device and writing image with dd.'
+    console.info([ctx.format(msg), 'Press CTRL-T for status.'])
+    cmd = ctx.format(cmd)
     console.info(cmd)
-    retcode = os.system(cmd)
-    if retcode != 0:
-        console.abort('Image restore command failed with return code {}.'.format(retcode))
+    ctx.retcode = os.system(cmd)
+    if ctx.retcode != 0:
+        console.abort(ctx.format('Image restore command failed with return code {retcode}.'))
+
+
+def restore_device(device_path, input_path, compression=None):  #pylint: disable=unused-argument
+    """Uncompress input file and copy to output device."""
+    ctx = utility.DictObject(**locals())
+    if compression:
+        ctx.expand_cmd = Compressors.get_expand_command(compression)
+        msg = 'Uncompressing image file with gzcat and writing to device with dd.'
+        cmd = ctx.format('{expand_cmd} "{input_path}" | sudo dd of={device_path} bs=64K')
+    else:
+        msg = 'Reading from image file and writing to device with dd.'
+        cmd = ctx.format('sudo dd if="{input_path}" of={device_path} bs=1M')
+    console.info([msg, 'Press CTRL-T for status.'])
+    console.info(cmd)
+    ctx.retcode = os.system(cmd)
+    if ctx.retcode != 0:
+        console.abort(ctx.format('Image restore command failed with return code {retcode}.'))
