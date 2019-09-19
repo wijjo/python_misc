@@ -27,6 +27,7 @@ from copy import copy
 from collections import OrderedDict
 
 from .flatten import flatten
+from .utility import DictObject
 
 # Import six if available globally or locally from scriptbase/python
 # Python2-3 compatibility helper library.
@@ -397,7 +398,7 @@ class Menu(object):
             error('Bad choice')
 
 
-class Context(object):
+class Context(DictObject):
     """
     Context object holds symbols that can be expanded for output.
 
@@ -405,14 +406,6 @@ class Context(object):
 
     Use of this class is preferred to the (deprecated) module level functions.
     """
-
-    def __init__(self, **symbols):
-        """Construct with initial symbols, if provided."""
-        self.symbols = symbols
-
-    def update(self, **symbols):
-        """Add symbols to the context."""
-        self.symbols.update(symbols)
 
     def format_strings(self, msgs, symbols=None, tag=None, split_strings_on=os.linesep):
         """See the module level function for more information."""
@@ -465,8 +458,8 @@ class Context(object):
 
     def _merge_symbols(self, symbols):
         if not symbols:
-            return self.symbols
-        merged_symbols = copy(self.symbols)
+            return self
+        merged_symbols = copy(self)
         merged_symbols.update(symbols)
         return merged_symbols
 
