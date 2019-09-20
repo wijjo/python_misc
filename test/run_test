@@ -53,7 +53,7 @@ def run_test_arg(test_name, options):
         sys.exit(255)
     test_module = 'test.%s' % test_module_name
     test_function = names[1] if len(names) == 2 else ''
-    if options.PYTHON2 or not options.PYTHON3:
+    if options.PYTHON2:
         run_test('python2', test_module, test_function)
     if options.PYTHON3 or not options.PYTHON2:
         run_test('python3', test_module, test_function)
@@ -73,9 +73,9 @@ def main():
     """Main program."""
     parser = argparse.ArgumentParser()
     parser.add_argument('-2', '--python2', dest='PYTHON2', action='store_true',
-                        help='Run Python version 2 only.')
+                        help='Run Python version 2.')
     parser.add_argument('-3', '--python3', dest='PYTHON3', action='store_true',
-                        help='Run Python version 3 only.')
+                        help='Run Python version 3 (default).')
     parser.add_argument(dest='TESTS', nargs=argparse.ZERO_OR_MORE,
                         help='<module> or <module>.test')
     args = parser.parse_args()
