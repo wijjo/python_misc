@@ -16,6 +16,8 @@
 Disk-related utilities for Unix-like systems.
 
 Some functions deal with MacOS differences.
+
+Some are only implemented for MacOS for now.
 """
 
 import sys
@@ -100,20 +102,30 @@ def purge_versions(path, suffix, num_keep, reverse=False):
     return num_purge
 
 
-class DiskVolume:
+class DiskVolume(utility.DumpableObject):
     """Data for a disk volume."""
 
     unit_labels = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB']
 
-    def __init__(self, disk_dev, volume_dev, filesystem, size, name, uuid, mountpoint):
-        self.disk_dev = disk_dev
-        self.raw_disk_dev = '/dev/r{}'.format(self.disk_dev)
+    def __init__(
+            self,
+            volume_dev,
+            disk_dev,
+            raw_disk_dev,
+            filesystem,
+            size,
+            name,
+            uuid,
+            mountpoint):
         self.volume_dev = volume_dev
+        self.disk_dev = disk_dev
+        self.raw_disk_dev = raw_disk_dev
         self.filesystem = filesystem
         self.size = int(size)
         self.name = name
         self.uuid = uuid
         self.mountpoint = mountpoint
+        utility.DumpableObject.__init__(self)
 
     @classmethod
     def format_disk_size(cls, size, places=2):
@@ -145,26 +157,52 @@ class DiskVolume:
         )
 
 
+FILESYSTEM_NAME_TRANSLATIONS_1 = {
+    'Apple_APFS': 'APFS',
+    'Apple_HFS': 'HFS',
+    'EFI': 'EFI',
+    'Windows_FAT_32': 'FAT32',
+}
+
+FILESYSTEM_NAME_TRANSLATIONS_2 = {
+    'Windows_NTFS': 'NTFS',
+    'UFSD_NTFS': 'NTFS',
+    'Journaled HFS+': 'HFS+',
+}
+
+
 def volumes_list():
     """Provide data for currently visible volumes."""
     if sys.platform != 'darwin':
         console.abort('Currently, volumes_list() is only implemented for MacOS')
     import plistlib
     volumes = []
-    proc = subprocess.run(['diskutil', 'list', '-plist'],
+    proc = subprocess.run(['diskutil', 'list', '-plist', 'physical'],
                           capture_output=True, check=True)
-    for disk_or_partition in plistlib.loads(
-            proc.stdout)['AllDisksAndPartitions']:
+    list_data = plistlib.loads(proc.stdout)
+    for disk_or_partition in list_data['AllDisksAndPartitions']:
         for volume in disk_or_partition.get('Partitions', []):
-            volumes.append(DiskVolume(
-                disk_or_partition['DeviceIdentifier'],
-                volume.get('DeviceIdentifier'),
-                volume.get('Content'),
-                volume.get('Size'),
-                volume.get('VolumeName'),
-                volume.get('VolumeUUID'),
-                volume.get('MountPoint'),
-            ))
+            # Assume that "useful" user volumes have UUIDs.
+            uuid = volume.get('VolumeUUID')
+            if uuid:
+                filesystem = FILESYSTEM_NAME_TRANSLATIONS_1.get(volume.get('Content'))
+                if not filesystem:
+                    proc2 = subprocess.run(['diskutil', 'info', '-plist', uuid],
+                                           capture_output=True, check=True)
+                    info_data = plistlib.loads(proc2.stdout)
+                    filesystem = info_data['FilesystemName']
+                    if filesystem in FILESYSTEM_NAME_TRANSLATIONS_2:
+                        filesystem = FILESYSTEM_NAME_TRANSLATIONS_2[filesystem]
+                volumes.append(DiskVolume(
+                    '/dev/{}'.format(volume.get('DeviceIdentifier')),
+                    '/dev/{}'.format(disk_or_partition['DeviceIdentifier']),
+                    '/dev/r{}'.format(disk_or_partition['DeviceIdentifier']),
+                    filesystem,
+                    volume.get('Size'),
+                    volume.get('VolumeName', '(unnamed)'),
+                    uuid,
+                    volume.get('MountPoint'),
+                ))
     return volumes
 
 

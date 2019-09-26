@@ -32,11 +32,11 @@ This module serves a similar purpose to the older scriptbase.cli module.
 However, it takes a much more minimalist and transparent approach.
 """
 
-import sys
 import os
 import argparse
 import re
-from inspect import isfunction
+from . import console
+from . import utility
 
 
 class _Private:
@@ -48,79 +48,8 @@ class _Private:
 
     default_group_name = 'subcommands'
     name_regex = re.compile(r'^\w+$')
-    true_strings = ('true', 't', 'yes', 'y', '1')
-    false_strings = ('false', 'f', 'no', 'n', '0')
-    enable_debug = os.environ.get('ARGDECO_DEBUG', '').lower() in true_strings
-
-    @classmethod
-    def string_to_boolean(cls, svalue, default=None):
-        """Convert string to True, False, default value, or None."""
-        if svalue.lower() in cls.true_strings:
-            return True
-        if svalue.lower() in cls.false_strings:
-            return False
-        return default
-
-    @classmethod
-    def _message(cls, msg, prefix=None, is_error=False):
-        """Supports all console output functions, and can abort for fatal errors."""
-        stream = sys.stderr if is_error else sys.stdout
-        if isinstance(msg, Exception):
-            msg = '{}: {}'.format(type(msg), str(msg))
-        if not prefix:
-            stream.write(msg)
-        else:
-            stream.write('{}: {}'.format(prefix, msg))
-        stream.write(os.linesep)
-
-    @classmethod
-    def object_repr(cls, instance, exclude=None):
-        """Format class instance repr() string."""
-        exclude = exclude or []
-        def _format_value(value):
-            if isinstance(value, str):
-                return "'{}'".format(value)
-            if isfunction(value):
-                return '{}()'.format(value.__name__)
-            return repr(value)
-        return '{}({})'.format(
-            instance.__class__.__name__,
-            ', '.join(['{}={}'.format(k, _format_value(getattr(instance, k)))
-                       for k in sorted(instance.__dict__.keys())
-                       if not k.startswith('_') and k not in exclude]))
-
-    @classmethod
-    def debug(cls, msg):
-        """Debug message (if DEBUG enabled)."""
-        if cls.enable_debug:
-            cls._message(msg, prefix='DEBUG')
-
-    @classmethod
-    def debug_object(cls, obj, exclude=None):
-        """Debug message for object instance."""
-        if cls.enable_debug:
-            cls._message(cls.object_repr(obj, exclude=exclude), prefix='DEBUG')
-
-    @classmethod
-    def info(cls, msg):
-        """Information message."""
-        cls._message(msg)
-
-    @classmethod
-    def warning(cls, msg):
-        """Warning message."""
-        cls._message(msg, prefix='WARNING', is_error=True)
-
-    @classmethod
-    def error(cls, msg):
-        """Error message."""
-        cls._message(msg, prefix='ERROR', is_error=True)
-
-    @classmethod
-    def abort(cls, msg):
-        """Display critical error and exit."""
-        cls._message(msg, prefix='CRITICAL', is_error=True)
-        sys.exit(1)
+    if os.environ.get('ARGDECO_DEBUG', '').lower() in utility.TRUE_STRINGS:
+        console.set_debug(True)
 
     @classmethod
     def is_valid_name(cls, name):
@@ -137,17 +66,14 @@ class _Private:
         """
         if not cls.commands:
             return {}
-        class _Group:
+        class _Group(utility.DumpableObject):
             def __init__(self, command_group):
                 self.name = command_group.name
                 self.symbol = command_group.symbol
                 self.args = command_group.args
                 self.kwargs = command_group.kwargs
                 self.commands = []
-            def __repr__(self):
-                return cls.object_repr(self)
-            def __str__(self):
-                return cls.object_repr(self)
+                utility.DumpableObject.__init__(self)
         grouped_command_map = {}
         default_group_name = None
         for group in cls.main.groups:
@@ -157,7 +83,7 @@ class _Private:
                 if not default_group_name:
                     default_group_name = group.name
             else:
-                cls.warning('Ignoring duplicate command group "{}".'.format(group.name))
+                console.warning('Ignoring duplicate command group "{}".'.format(group.name))
         # Add a default group if no groups were declared.
         if not grouped_command_map:
             grouped_command_map[cls.default_group_name] = CLI.CommandGroup(cls.default_group_name)
@@ -174,7 +100,7 @@ class _Private:
             grouped_command_map[command.group].commands.append(command)
         return grouped_command_map
 
-    class GenericArgumentBase:
+    class GenericArgumentBase(utility.DumpableObject):
         """
         Base class for argument and option declaration classes.
 
@@ -194,13 +120,13 @@ class _Private:
             # Perform basic sanity checks against common positional arguments to
             # catch cases where they are accidentally swapped.
             if not _Private.is_valid_name(name):
-                _Private.abort('Bad {} name "{}".'.format(arg_type, name))
+                console.abort('Bad {} name "{}".'.format(arg_type, name))
             if isinstance(flags, str) and not flags.startswith('-'):
-                _Private.abort('"{}" {} flag "{}"" does not start with "-".'
-                               .format(name, arg_type, flags))
+                console.abort('"{}" {} flag "{}"" does not start with "-".'
+                              .format(name, arg_type, flags))
             if isinstance(flags, (list, tuple)) and [s for s in flags if s[:1] != '-']:
-                _Private.abort('Not all "{}" {} flags in {} start with "-".'
-                               .format(name, arg_type, str(flags)))
+                console.abort('Not all "{}" {} flags in {} start with "-".'
+                              .format(name, arg_type, str(flags)))
 
             self.arg_type = arg_type
             self.name = name
@@ -214,8 +140,8 @@ class _Private:
             elif flags is None:
                 self.add_argument_args.append(name)
             else:
-                _Private.abort('Unsupported type ({}) for argument {} flags.'
-                               .format(type(flags), name))
+                console.abort('Unsupported type ({}) for argument {} flags.'
+                              .format(type(flags), name))
 
             # Build keyword argument dict with items that have non-None values.
             # Don't add "dest" if it was supplied as the positional argument.
@@ -234,11 +160,7 @@ class _Private:
                 if value is not None
             }
 
-        def __repr__(self):
-            return _Private.object_repr(self)
-
-        def __str__(self):
-            return _Private.object_repr(self)
+            utility.DumpableObject.__init__(self)
 
     class GenericOption(GenericArgumentBase):
         """Base class for argument declaration classes."""
@@ -287,8 +209,8 @@ class _Private:
         found_trailing_list = False
         for arg in args:
             if found_trailing_list:
-                cls.abort('TrailingList must be the single last argument.')
-            cls.debug('Add argument {}:{}.'.format(name, arg.name))
+                console.abort('TrailingList must be the single last argument.')
+            console.debug('Add argument {}:{}.'.format(name, arg.name))
             parser.add_argument(*arg.add_argument_args, **arg.add_argument_kwargs)
             if isinstance(arg, cls.TrailingListArgument):
                 found_trailing_list = True
@@ -298,11 +220,11 @@ class _Private:
         """Call once to parse command line. Return (args, commands)."""
         # Deal with main parser and arguments.
         if cls.main:
-            cls.debug('Create ArgumentParser for @Main.')
+            console.debug('Create ArgumentParser for @Main.')
             parser = argparse.ArgumentParser(*cls.main.args, **cls.main.kwargs)
             cls.parse_command_arguments(parser, '@Main', cls.main.arguments)
         else:
-            cls.debug('Create default ArgumentParser.')
+            console.debug('Create default ArgumentParser.')
             parser = argparse.ArgumentParser()
 
         # Deal with sub-parsers and arguments.
@@ -310,10 +232,10 @@ class _Private:
         for group_name in sorted(grouped_command_map.keys()):
             group = grouped_command_map[group_name]
             if group.commands:
-                cls.debug('Create sub-parser for {}.'.format(group.name))
+                console.debug('Create sub-parser for {}.'.format(group.name))
                 subparsers = parser.add_subparsers(*group.args, **group.kwargs)
                 for cmd in group.commands:
-                    cls.debug('Add command parser for {}:{}.'.format(group.name, cmd.name))
+                    console.debug('Add command parser for {}:{}.'.format(group.name, cmd.name))
                     subparser = subparsers.add_parser(cmd.name, *cmd.args, **cmd.kwargs)
                     cls.parse_command_arguments(subparser, cmd.name, cmd.arguments)
 
@@ -321,15 +243,15 @@ class _Private:
         args = parser.parse_args(args=args)
 
         # Dump stuff if debug is enabled.
-        if cls.enable_debug:
-            cls.debug('Parsed arguments: {}'.format(args))
+        if console.is_debug():
+            console.debug('Parsed arguments: {}'.format(args))
             for group_name in sorted(grouped_command_map.keys()):
                 command_group = grouped_command_map[group_name]
-                cls.debug_object(command_group, exclude=['commands'])
+                console.debug(utility.object_repr(command_group, exclude=['commands']))
                 for command in command_group.commands:
-                    cls.debug_object(command, exclude=['arguments'])
+                    console.debug(utility.object_repr(command, exclude=['arguments']))
                     for argument in command.arguments:
-                        cls.debug_object(argument)
+                        console.debug(utility.object_repr(argument))
 
         # Find active group and command if it is a sub-command.
         active_command = None
@@ -344,7 +266,7 @@ class _Private:
 
         # Fall back to the "main" command when there isn't a sub-command.
         if not active_command:
-            cls.debug('There is no active sub-command.')
+            console.debug('There is no active sub-command.')
             active_command = cls.main
 
         # Validate and convert argument data.
@@ -355,12 +277,12 @@ class _Private:
                 try:
                     setattr(args, arg.name, arg.fix(attr_value))
                 except (TypeError, ValueError) as exc:
-                    cls.error('Unable to convert argument "{}" value: {}'
-                              .format(arg.name, str(attr_value)))
-                    cls.error(exc)
+                    console.error('Unable to convert argument "{}" value: {}'
+                                  .format(arg.name, str(attr_value)))
+                    console.error(exc)
                     errors += 1
         if errors > 0:
-            cls.abort('Errors during argument data conversion: {}'.format(errors))
+            console.abort('Errors during argument data conversion: {}'.format(errors))
 
         # Return args and active @Main/@Command object(s).
         commands = []
@@ -369,7 +291,7 @@ class _Private:
         if active_command and active_command != cls.main:
             commands.append(active_command)
         if not commands:
-            cls.abort('No CLI @Main or @Command functions are available')
+            console.abort('No CLI @Main or @Command functions are available')
 
         return (args, commands)
 
@@ -397,7 +319,7 @@ class CLI:
 
         def __call__(self, func):
             if _Private.main:
-                _Private.abort('More than one @Main encountered.')
+                console.abort('More than one @Main encountered.')
             self.func = func
             _Private.main = self
 
@@ -410,16 +332,16 @@ class CLI:
             self.kwargs = kwargs
             self.symbol = 'ZZZ_{}'.format(self.name.upper())
             if 'title' in self.kwargs and self.kwargs['title'] != self.name:
-                _Private.warning('Overriding command group {} "title" value "{}" with "{}".'
-                                 .format(self.name, self.kwargs['title'], self.name))
+                console.warning('Overriding command group {} "title" value "{}" with "{}".'
+                                .format(self.name, self.kwargs['title'], self.name))
             self.kwargs['title'] = self.name
             if 'dest' in self.kwargs and self.kwargs['dest'] != self.name:
-                _Private.warning('Overriding command group {} "dest" value "{}" with "{}".'
-                                 .format(self.name, self.kwargs['dest'], self.symbol))
+                console.warning('Overriding command group {} "dest" value "{}" with "{}".'
+                                .format(self.name, self.kwargs['dest'], self.symbol))
             self.kwargs['dest'] = self.symbol
 
 
-    class Command:
+    class Command(utility.DumpableObject):
         """
         Command function decorator for sub-command implementation.
 
@@ -440,17 +362,12 @@ class CLI:
             self.args = args
             self.kwargs = kwargs
             self.func = None
+            utility.DumpableObject.__init__(self)
 
         def __call__(self, func):
             self.func = func
             _Private.commands.append(self)
             return func
-
-        def __repr__(self):
-            return _Private.object_repr(self)
-
-        def __str__(self):
-            return _Private.object_repr(self)
 
     class Opt:
         """Option declaration."""
@@ -507,7 +424,7 @@ class CLI:
 
             def fix(self, value):
                 """Validate boolean string and convert to bool."""
-                bvalue = _Private.string_to_boolean(value)
+                bvalue = utility.string_to_boolean(value)
                 if bvalue is None:
                     raise ValueError('Bad boolean argument value "{}"'.format(value))
                 return bvalue

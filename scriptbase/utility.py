@@ -31,6 +31,8 @@ except ImportError:
 
 
 RE_RANGE = re.compile(r'\[([^\]-])-([^\]-])')
+TRUE_STRINGS = ('true', 't', 'yes', 'y', '1')
+FALSE_STRINGS = ('false', 'f', 'no', 'n', '0')
 
 
 # https://gist.github.com/techtonik/2151727/raw/4169b8cccbb0350b709e43d464031616e1b89252/caller_name.py
@@ -226,3 +228,38 @@ def working_directory_context(directory):
     os.chdir(directory)
     yield
     os.chdir(save_directory)
+
+
+def string_to_boolean(svalue, default=None):
+    """Convert string to True, False, default value, or None."""
+    if svalue.lower() in TRUE_STRINGS:
+        return True
+    if svalue.lower() in FALSE_STRINGS:
+        return False
+    return default
+
+
+def object_repr(instance, exclude=None):
+    """Format class instance repr() string."""
+    exclude = exclude or []
+    def _format_value(value):
+        if isinstance(value, str):
+            return "'{}'".format(value)
+        if inspect.isfunction(value):
+            return '{}()'.format(value.__name__)
+        return repr(value)
+    return '{}({})'.format(
+        instance.__class__.__name__,
+        ', '.join(['{}={}'.format(k, _format_value(getattr(instance, k)))
+                   for k in sorted(instance.__dict__.keys())
+                   if not k.startswith('_') and k not in exclude]))
+
+
+class DumpableObject:
+    """Mix-in class for attaching member-dumping __repr__ and __str__ methods."""
+    def __init__(self, exclude=None):
+        self._dumpable_exclude = exclude
+    def __repr__(self):
+        return object_repr(self, exclude=self._dumpable_exclude)
+    def __str__(self):
+        return object_repr(self, exclude=self._dumpable_exclude)
