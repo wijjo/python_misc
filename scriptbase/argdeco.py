@@ -32,17 +32,21 @@ This module serves a similar purpose to the older scriptbase.cli module.
 However, it takes a much more minimalist and transparent approach.
 """
 
+import sys
+import os
+import argparse
+import re
+from inspect import isfunction
+
 
 class _Private:
     """Private data, functions, and classes."""
-
-    import re
-    import os
 
     # Data from decorators
     main = None
     commands = []
 
+    default_group_name = 'subcommands'
     name_regex = re.compile(r'^\w+$')
     true_strings = ('true', 't', 'yes', 'y', '1')
     false_strings = ('false', 'f', 'no', 'n', '0')
@@ -60,8 +64,6 @@ class _Private:
     @classmethod
     def _message(cls, msg, prefix=None, is_error=False):
         """Supports all console output functions, and can abort for fatal errors."""
-        import sys
-        import os
         stream = sys.stderr if is_error else sys.stdout
         if isinstance(msg, Exception):
             msg = '{}: {}'.format(type(msg), str(msg))
@@ -72,10 +74,32 @@ class _Private:
         stream.write(os.linesep)
 
     @classmethod
+    def object_repr(cls, instance, exclude=None):
+        """Format class instance repr() string."""
+        exclude = exclude or []
+        def _format_value(value):
+            if isinstance(value, str):
+                return "'{}'".format(value)
+            if isfunction(value):
+                return '{}()'.format(value.__name__)
+            return repr(value)
+        return '{}({})'.format(
+            instance.__class__.__name__,
+            ', '.join(['{}={}'.format(k, _format_value(getattr(instance, k)))
+                       for k in sorted(instance.__dict__.keys())
+                       if not k.startswith('_') and k not in exclude]))
+
+    @classmethod
     def debug(cls, msg):
         """Debug message (if DEBUG enabled)."""
         if cls.enable_debug:
             cls._message(msg, prefix='DEBUG')
+
+    @classmethod
+    def debug_object(cls, obj, exclude=None):
+        """Debug message for object instance."""
+        if cls.enable_debug:
+            cls._message(cls.object_repr(obj, exclude=exclude), prefix='DEBUG')
 
     @classmethod
     def info(cls, msg):
@@ -96,7 +120,6 @@ class _Private:
     def abort(cls, msg):
         """Display critical error and exit."""
         cls._message(msg, prefix='CRITICAL', is_error=True)
-        import sys
         sys.exit(1)
 
     @classmethod
@@ -112,6 +135,8 @@ class _Private:
         Note that CommandGroup is guaranteed to have a good "name" member and
         Command must have a good "group" member.
         """
+        if not cls.commands:
+            return {}
         class _Group:
             def __init__(self, command_group):
                 self.name = command_group.name
@@ -119,18 +144,33 @@ class _Private:
                 self.args = command_group.args
                 self.kwargs = command_group.kwargs
                 self.commands = []
+            def __repr__(self):
+                return cls.object_repr(self)
+            def __str__(self):
+                return cls.object_repr(self)
         grouped_command_map = {}
-        for group in _Private.main.groups:
+        default_group_name = None
+        for group in cls.main.groups:
             if group.name not in grouped_command_map:
                 grouped_command_map[group.name] = _Group(group)
+                # The first explicitly-declared group becomes the default
+                if not default_group_name:
+                    default_group_name = group.name
             else:
-                _Private.warning('Ignoring duplicate command group "{}".'.format(group.name))
+                cls.warning('Ignoring duplicate command group "{}".'.format(group.name))
+        # Add a default group if no groups were declared.
+        if not grouped_command_map:
+            grouped_command_map[cls.default_group_name] = CLI.CommandGroup(cls.default_group_name)
+            default_group_name = cls.default_group_name
         # Add missing groups for commands that reference unregistered group names.
-        for command in _Private.commands:
-            if command.group and command.group not in grouped_command_map:
-                grouped_command_map[command.group] = _Group(CLI.CommandGroup(command.group))
+        for command in cls.commands:
+            if command.group:
+                if command.group not in grouped_command_map:
+                    grouped_command_map[command.group] = _Group(CLI.CommandGroup(command.group))
+            else:
+                command.group = default_group_name
         # Build command lists in command groups.
-        for command in _Private.commands:
+        for command in cls.commands:
             grouped_command_map[command.group].commands.append(command)
         return grouped_command_map
 
@@ -195,12 +235,10 @@ class _Private:
             }
 
         def __repr__(self):
-            return '{{arg_type}}({})'.format(', '.join([
-                "name='{name}'",
-                'add_argument_args={add_argument_args}',
-                'add_argument_kwargs={add_argument_kwargs}',
-            ])).format(**self.__dict__)
+            return _Private.object_repr(self)
 
+        def __str__(self):
+            return _Private.object_repr(self)
 
     class GenericOption(GenericArgumentBase):
         """Base class for argument declaration classes."""
@@ -258,8 +296,6 @@ class _Private:
     @classmethod
     def parse_cli(cls, args=None):
         """Call once to parse command line. Return (args, commands)."""
-        import argparse
-
         # Deal with main parser and arguments.
         if cls.main:
             cls.debug('Create ArgumentParser for @Main.')
@@ -284,6 +320,17 @@ class _Private:
         # Parse the command line arguments.
         args = parser.parse_args(args=args)
 
+        # Dump stuff if debug is enabled.
+        if cls.enable_debug:
+            cls.debug('Parsed arguments: {}'.format(args))
+            for group_name in sorted(grouped_command_map.keys()):
+                command_group = grouped_command_map[group_name]
+                cls.debug_object(command_group, exclude=['commands'])
+                for command in command_group.commands:
+                    cls.debug_object(command, exclude=['arguments'])
+                    for argument in command.arguments:
+                        cls.debug_object(argument)
+
         # Find active group and command if it is a sub-command.
         active_command = None
         for group in grouped_command_map.values():
@@ -292,11 +339,12 @@ class _Private:
                 for cmd in group.commands:
                     if command_name == cmd.name:
                         active_command = cmd
-                    break
+                        break
                 break
 
         # Fall back to the "main" command when there isn't a sub-command.
         if not active_command:
+            cls.debug('There is no active sub-command.')
             active_command = cls.main
 
         # Validate and convert argument data.
@@ -356,8 +404,6 @@ class CLI:
 
     class CommandGroup:
         """Holds args/kwargs for argparse add_subparsers()."""
-        default_name = 'subcommands'
-
         def __init__(self, name, *args, **kwargs):
             self.name = name
             self.args = args
@@ -389,9 +435,9 @@ class CLI:
 
         def __init__(self, name, *args, **kwargs):
             self.name = name
-            self.args = args
             self.arguments = kwargs.pop('arguments', [])
-            self.group = kwargs.pop('group', CLI.CommandGroup.default_name)
+            self.group = kwargs.pop('group', None)
+            self.args = args
             self.kwargs = kwargs
             self.func = None
 
@@ -399,6 +445,12 @@ class CLI:
             self.func = func
             _Private.commands.append(self)
             return func
+
+        def __repr__(self):
+            return _Private.object_repr(self)
+
+        def __str__(self):
+            return _Private.object_repr(self)
 
     class Opt:
         """Option declaration."""

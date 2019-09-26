@@ -219,7 +219,7 @@ class Compressor:
             progs.append(prog)
         else:
             console.abort('Unable to find {} compression program: {}'
-                        .format(self.name, ' '.join(progs)))
+                          .format(self.name, ' '.join(progs)))
         return cmd
 
     def get_expand_command(self):
@@ -287,7 +287,8 @@ def restore_device(device_path, input_path, compression=None):  #pylint: disable
     ctx = utility.DictObject(**locals())
     if compression:
         ctx.expand_cmd = Compressors.get_expand_command(compression)
-        msg = 'Uncompressing image file with gzcat and writing to device with dd.'
+        msg = ('Uncompressing image file with {} and writing to device with dd.'
+               .format(ctx.expand_cmd))
         cmd = ctx.format('{expand_cmd} "{input_path}" | sudo dd of={device_path} bs=64K')
     else:
         msg = 'Reading from image file and writing to device with dd.'
