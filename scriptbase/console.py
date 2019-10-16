@@ -22,6 +22,7 @@ prompts, input, and menus.
 import sys
 import os
 import re
+import inspect
 from getpass import getpass
 from copy import copy
 from collections import OrderedDict
@@ -39,50 +40,61 @@ except ImportError:
 
 class Global(object):
     """Global variables."""
+    verbose = False
+    debug = False
+    output_stream = sys.stdout
+    error_stream = sys.stderr
+    indent_string = '  '
+    re_yes_no = re.compile('[yn]?', re.IGNORECASE)
+    abort_exception = False
+    header_separator_line = '=' * 70
 
-    VERBOSE = False
-    DEBUG = False
-    OUTPUT_STREAM = sys.stdout
-    ERROR_STREAM = sys.stderr
-    INDENT_STRING = '  '
-    MENU_OTHER_MARKER = '...'
-    RE_YES_NO = re.compile('[yn]?', re.IGNORECASE)
+
+class FatalError(Exception):
+    """Raised by Context.abort() if exceptions are enabled."""
+    pass
 
 
 def set_verbose(verbose):
     """Enable verbose output if True."""
-    Global.VERBOSE = verbose
+    Global.verbose = verbose
 
 
 def is_verbose():
     """Return True if verbose output is enabled."""
-    return Global.VERBOSE
+    return Global.verbose
 
 
 def set_debug(debug_flag):
-    """Enable debug output if debug is True."""
-    Global.DEBUG = debug_flag
+    """Enable debug output if debug_flag is True."""
+    Global.debug = debug_flag
 
 
 def is_debug():
-    """Return True if debug output is enables."""
-    return Global.DEBUG
+    """Return True if debug output is enabled."""
+    return Global.debug
 
 
 def set_indentation(indent_string):
     """Set custom message indentation string, the default is 2 blanks."""
-    Global.INDENT_STRING = indent_string
+    Global.indent_string = indent_string
 
 
 def set_streams(output_stream, error_stream):
     """Override output and error streams (stdout and stderr)."""
-    Global.OUTPUT_STREAM = output_stream
-    Global.ERROR_STREAM = error_stream
+    Global.output_stream = output_stream
+    Global.error_stream = error_stream
 
 
-def format_strings(templates, symbols=None, tag=None, level=0, split_strings_on=os.linesep):
+def format_strings(
+        templates,
+        symbols=None,
+        tag=None,
+        level=0,
+        split_strings_on=os.linesep,
+    ):
     """
-    Low level message display.
+    Format message strings.
 
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
@@ -96,28 +108,83 @@ def format_strings(templates, symbols=None, tag=None, level=0, split_strings_on=
                                       split_strings_on=split_strings_on):
         if issubclass(template.__class__, Exception):
             template = 'Exception[%s]: %s' % (template.__class__.__name__, str(template))
-        sindent = (level + sublevel) * Global.INDENT_STRING
+        sindent = Global.indent_string * (level + sublevel)
         yield ''.join([stag, sindent, str(template)])
 
 
-def format_string(template, symbols=None, tag=None, level=0):
-    """Format a single string without splitting on line separators."""
-    for out_str in format_strings(template, symbols=symbols, tag=tag, level=level,
-                                  split_strings_on=None):
+def format_string(
+        template,
+        symbols=None,
+        tag=None,
+        level=0,
+    ):
+    """Format a single message string without line splitting."""
+    for out_str in format_strings(
+            template,
+            symbols=symbols,
+            tag=tag,
+            level=level,
+            split_strings_on=None,
+        ):
         return out_str
 
 
-def display_messages(msgs, stream=None, symbols=None, tag=None, level=0):
+def _handle_messages(
+        msgs,
+        stream=None,
+        symbols=None,
+        tag=None,
+        level=0,
+        scope=None,
+        fatal=None,
+    ):
     """
-    Low level message display.
+    Internal low-level message display.
+
+    "scope" values:
+        None or 0      always display
+        'debug'        verbose mode only
+        'verbose'      debug mode only
+        tuple or list  multiple scopes, e.g. ('debug', 'verbose')
+
+    "fatal" values:
+        None or 0           no action
+        Exception subclass  raise provided exception class instance
+        1-n                 exit with provided return code
+    """
+    scopes = [] if not scope else (scope if isinstance(scope, (tuple, list)) else [scope])
+    if 'verbose' in scopes and not Global.verbose:
+        return
+    if 'debug' in scopes and not Global.debug:
+        return
+    output_stream = stream if stream else Global.output_stream
+    msgs = format_strings(msgs, symbols=symbols, tag=tag, level=level)
+    for msg in msgs:
+        output_stream.write(msg)
+        output_stream.write(os.linesep)
+    if fatal:
+        if inspect.isclass(fatal) and issubclass(fatal, Exception):
+            raise fatal(os.linesep.join(list(msgs)))
+        try:
+            retcode = int(fatal)
+        except ValueError:
+            Global.error_stream.write('ERROR: Bad "fatal" value: {}'.format(str(fatal)))
+            Global.error_stream.write(os.linesep)
+            retcode = 255
+        Global.error_stream.write('ABORT')
+        Global.error_stream.write(os.linesep)
+        sys.exit(retcode)
+    return msgs
+
+
+def display_messages(msgs, stream=None, symbols=None, tag=None):
+    """
+    Flexible message display.
 
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    output_stream = stream if stream else Global.OUTPUT_STREAM
-    for msg in format_strings(msgs, symbols=symbols, tag=tag, level=level):
-        output_stream.write(msg)
-        output_stream.write(os.linesep)
+    _handle_messages(msgs, stream=stream, symbols=symbols, tag=tag)
 
 
 def info(*msgs, **symbols):
@@ -127,7 +194,7 @@ def info(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    display_messages(msgs, symbols=symbols)
+    _handle_messages(msgs, symbols=symbols)
 
 
 def verbose_info(*msgs, **symbols):
@@ -137,8 +204,7 @@ def verbose_info(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    if Global.VERBOSE:
-        display_messages(msgs, symbols=symbols, tag='TRACE')
+    _handle_messages(msgs, symbols=symbols, tag='TRACE', scope='verbose')
 
 
 def debug(*msgs, **symbols):
@@ -148,8 +214,8 @@ def debug(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    if Global.DEBUG:
-        display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='DEBUG')
+    _handle_messages(msgs, symbols=symbols, stream=Global.error_stream,
+                     tag='DEBUG', scope='debug')
 
 
 def warning(*msgs, **symbols):
@@ -159,7 +225,7 @@ def warning(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='WARNING')
+    _handle_messages(msgs, symbols=symbols, stream=Global.error_stream, tag='WARNING')
 
 
 def error(*msgs, **symbols):
@@ -169,7 +235,7 @@ def error(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='ERROR')
+    _handle_messages(msgs, symbols=symbols, stream=Global.error_stream, tag='ERROR')
 
 
 def abort(*msgs, **symbols):
@@ -182,10 +248,9 @@ def abort(*msgs, **symbols):
     A special "return_code" symbol is supported to allow the caller to override
     the default return code of 255.
     """
-    display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='ERROR')
-    Global.ERROR_STREAM.write('ABORT')
-    Global.ERROR_STREAM.write(os.linesep)
-    sys.exit(symbols.get('return_code', 255))
+    fatal = FatalError if Global.abort_exception else symbols.get('return_code', 255)
+    _handle_messages(msgs, symbols=symbols, stream=Global.error_stream,
+                     tag='ERROR', fatal=fatal)
 
 
 def header(*msgs, **symbols):
@@ -195,10 +260,9 @@ def header(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    line_separator = '=' * 70
-    display_messages(['', line_separator])
-    display_messages(msgs, level=1, symbols=symbols)
-    display_messages([line_separator, ''])
+    _handle_messages(['', Global.header_separator_line])
+    _handle_messages(msgs, level=1, symbols=symbols)
+    _handle_messages([Global.header_separator_line, ''])
 
 
 def pause(*msgs, **symbols):
@@ -208,7 +272,7 @@ def pause(*msgs, **symbols):
     Keywords can be expanded using either '%' operator tags, e.g. "%(<name>)s",
     or format() string "{<name>}" tags. Both tag styles will work.
     """
-    display_messages([''] + list(msgs), symbols=symbols)
+    _handle_messages([''] + list(msgs), symbols=symbols)
     response = '?'
     while response and response not in ('y', 'yes', 'n', 'no'):
         sys.stdout.write('>>> Continue? (Y|n) ')
@@ -289,7 +353,7 @@ def prompt_yes_no(prompt, default=False):
     else:
         yes_no = 'y/N'
         sdef = 'n'
-    return (prompt_regex('%s (%s)' % (prompt, yes_no), Global.RE_YES_NO, sdef).lower() == 'y')
+    return (prompt_regex('%s (%s)' % (prompt, yes_no), Global.re_yes_no, sdef).lower() == 'y')
 
 
 class MenuChoice(object):
@@ -362,9 +426,9 @@ class Menu(object):
         if not self.choices:
             error('No menu choices were provided.')
             return None
-        print('')
+        sys.stdout.write(os.linesep)
         if heading:
-            print('::: %s :::' % heading)
+            sys.stdout.write('::: {} :::{}'.format(heading, os.linesep))
         prompt_parts = [prompt]
         default_choice_id = self.default_choice_id
         if default_choice_id is not None:
@@ -378,7 +442,7 @@ class Menu(object):
         template = '  %%%ds%%%ds %%s' % (max_key_width + 2, max_tag_width)
         for choice_id, choice in self.choices.items():
             tag = '*' if choice_id == default_choice_id else ''
-            print(template % ('[%s]' % choice_id, tag, choice.text))
+            sys.stdout.write(template % ('[{}]'.format(choice_id), tag, choice.text))
         return self._get_choice(''.join(prompt_parts), default_choice_id)
 
     def _get_choice(self, prompt, default_choice_id):
@@ -405,56 +469,130 @@ class Context(DictObject):
     By default this uses format() string expansion.
 
     Use of this class is preferred to the (deprecated) module level functions.
+
+    It can be used in a "with" statement as a context manager.
     """
 
-    def format_strings(self, msgs, symbols=None, tag=None, split_strings_on=os.linesep):
-        """See the module level function for more information."""
-        merged_symbols = self._merge_symbols(symbols)
-        for out_str in format_strings(msgs, symbols=merged_symbols, tag=tag,
-                                      split_strings_on=split_strings_on):
-            yield out_str
+    def __init__(self, *args, **kwargs):
+        self._level = 0
+        self._pending_msgs = []
+        self._sub_ctxs = []
+        self._abort_exception = Global.abort_exception
+        super().__init__(*args, **kwargs)
 
-    def format_string(self, template, symbols=None, tag=None, level=0):
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_tupe, exc_val, exc_tb):
+        self.flush()
+        return False
+
+    def set_abort_exception(self, enabled):
+        """Use exception for abort() if True, otherwise sys.exit()."""
+        self._abort_exception = enabled
+
+    def flush(self):
+        """Flush pending output, e.g. for tree display."""
+        if self._level == 0 and (self._pending_msgs or self._sub_ctxs):
+            pass
+
+    def set_level(self, level):
+        """Set indentation level."""
+        self._level = level
+
+    def subcontext(self, **symbols):
+        """A sub-context indents displayed messaged and inherits symbols."""
+        sub_ctx = Context(self, **symbols)
+        sub_ctx.set_level(self._level + 1)
+        sub_ctx.set_abort_exception(self._abort_exception)
+        self._sub_ctxs.append(sub_ctx)
+        return sub_ctx
+
+    def format_strings(
+            self,
+            msgs,
+            symbols=None,
+            tag=None,
+            split_strings_on=os.linesep,
+        ):
+        """See the module level function for more information."""
+        return format_strings(msgs,
+                              symbols=self._merge_symbols(symbols),
+                              tag=tag,
+                              split_strings_on=split_strings_on)
+
+    def format_string(self, template, symbols=None, tag=None):
         """Format a single string without splitting on line separators."""
-        merged_symbols = self._merge_symbols(symbols)
-        return format_string(template, symbols=merged_symbols, tag=tag, level=level)
+        return format_string(template,
+                             symbols=self._merge_symbols(symbols),
+                             tag=tag,
+                             level=self.level)
 
     def display_messages(self, msgs, stream=None, symbols=None, tag=None):
         """See the module level function for more information."""
-        merged_symbols = self._merge_symbols(symbols)
-        display_messages(msgs, stream=stream, symbols=merged_symbols, tag=tag)
+        _handle_messages(msgs,
+                         stream=stream,
+                         symbols=self._merge_symbols(symbols),
+                         tag=tag,
+                         level=self._level)
 
     def info(self, *msgs, **symbols):
         """See the module level function for more information."""
-        self.display_messages(msgs, symbols=symbols)
+        _handle_messages(msgs,
+                         symbols=self._merge_symbols(symbols),
+                         level=self._level)
+
+    def debug(self, *msgs, **symbols):
+        """See the module level function for more information."""
+        _handle_messages(msgs,
+                         symbols=self._merge_symbols(symbols),
+                         tag='DEBUG',
+                         level=self._level,
+                         scope='debug')
 
     def verbose_info(self, *msgs, **symbols):
         """See the module level function for more information."""
-        if Global.VERBOSE:
-            self.display_messages(msgs, symbols=symbols, tag='TRACE')
+        _handle_messages(msgs,
+                         symbols=self._merge_symbols(symbols),
+                         tag='TRACE',
+                         level=self._level,
+                         scope='verbose')
 
     def warning(self, *msgs, **symbols):
         """See the module level function for more information."""
-        self.display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='WARNING')
+        _handle_messages(msgs,
+                         stream=Global.error_stream,
+                         symbols=self._merge_symbols(symbols),
+                         tag='WARNING',
+                         level=self._level)
 
     def error(self, *msgs, **symbols):
         """See the module level function for more information."""
-        self.display_messages(msgs, symbols=symbols, stream=Global.ERROR_STREAM, tag='ERROR')
+        _handle_messages(msgs,
+                         stream=Global.error_stream,
+                         symbols=self._merge_symbols(symbols),
+                         tag='ERROR',
+                         level=self._level)
 
     def abort(self, *msgs, **symbols):
         """See the module level function for more information."""
-        merged_symbols = self._merge_symbols(symbols)
-        abort(*msgs, **merged_symbols)
+        fatal = FatalError if self._abort_exception else symbols.get('return_code', 255)
+        _handle_messages(msgs,
+                         stream=Global.error_stream,
+                         symbols=self._merge_symbols(symbols),
+                         tag='ERROR',
+                         level=self._level,
+                         fatal=fatal)
 
     def header(self, *msgs, **symbols):
         """See the module level function for more information."""
-        merged_symbols = self._merge_symbols(symbols)
-        header(*msgs, **merged_symbols)
+        _handle_messages(['', Global.header_separator_line])
+        _handle_messages(msgs, level=1, symbols=self._merge_symbols(symbols))
+        _handle_messages([Global.header_separator_line, ''])
 
     def pause(self, *msgs, **symbols):
         """See the module level function for more information."""
-        merged_symbols = self._merge_symbols(symbols)
-        pause(*msgs, **merged_symbols)
+        pause(*msgs, **self._merge_symbols(symbols))
 
     def _merge_symbols(self, symbols):
         if not symbols:

@@ -5,9 +5,9 @@ from scriptbase.argdeco import CLI
 @CLI.Main(
     description='CLI test program',
     arguments=[
-        CLI.Opt.Integer('AOI', ['-r', '--reps'], 'global integer option'),
-        CLI.Opt.Boolean('AOB', ['-v', '--verbose'], 'global boolean option'),
-        CLI.Opt.String('AOS', '-t', 'global string option'),
+        (['-r', '--reps'], CLI.Integer('AOI', 'global integer option')),
+        (['-v', '--verbose'], CLI.Boolean('AOB', 'global boolean option')),
+        CLI.String('AOS', '-t', 'global string option'),
     ]
 )
 def _main(args, results):
@@ -16,12 +16,12 @@ def _main(args, results):
 @CLI.Command(
     'bbb',
     arguments=[
-        CLI.Opt.Integer('BOI', '-i', 'bbb integer option'),
-        CLI.Opt.Boolean('BOB', '-b', 'bbb boolean option'),
-        CLI.Opt.String('BOS', '-s', 'bbb string option'),
-        CLI.Arg.Integer('BAI', 'bbb integer argument'),
-        CLI.Arg.Boolean('BAB', 'bbb boolean argument'),
-        CLI.Arg.String('BAS', 'bbb string argument'),
+        ('-i', CLI.Integer('BOI', 'bbb integer option')),
+        ('-b', CLI.Boolean('BOB', 'bbb boolean option')),
+        ('-s', CLI.String('BOS', 'bbb string option')),
+        CLI.Integer('BAI', 'bbb integer argument'),
+        CLI.Boolean('BAB', 'bbb boolean argument'),
+        CLI.String('BAS', 'bbb string argument'),
     ]
 )
 def _bbb(args, results):
@@ -30,12 +30,12 @@ def _bbb(args, results):
 @CLI.Command(
     'ccc',
     arguments=[
-        CLI.Opt.Integer('COI', '-I', 'ccc integer option'),
-        CLI.Opt.Boolean('COB', '-B', 'ccc boolean option'),
-        CLI.Opt.String('COS', '-S', 'ccc string option'),
-        CLI.Arg.Integer('CAI', 'ccc integer argument'),
-        CLI.Arg.Boolean('CAB', 'ccc boolean argument'),
-        CLI.Arg.String('CAS', 'ccc string argument'),
+        ('-I', CLI.Integer('COI', 'ccc integer option')),
+        ('-B', CLI.Boolean('COB', 'ccc boolean option')),
+        ('-S', CLI.String('COS', 'ccc string option')),
+        CLI.Integer('CAI', 'ccc integer argument'),
+        CLI.Boolean('CAB', 'ccc boolean argument'),
+        CLI.String('CAS', 'ccc string argument'),
     ]
 )
 def _ccc(args, results):
@@ -54,7 +54,11 @@ def run_test(cli_args, exp_called, exp_args):
             self.args = {k: getattr(args, k) for k in args.__dict__.keys() if k[0] != '_'}
     exp_args['ZZZ_SUBCOMMANDS'] = exp_called[-1] if len(exp_called) > 1 else None
     results = Results()
-    CLI.main(results, cli_args=cli_args)
+    import argparse
+    try:
+        CLI.main(results, cli_args=cli_args, abort_exception=True)
+    except (argparse.ArgumentError, SystemExit):
+        return 1
     exp_args = canon_dict(exp_args)
     res_args = canon_dict(results.args)
     errors = 0

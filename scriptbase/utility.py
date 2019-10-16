@@ -77,6 +77,14 @@ def is_string(value):
     return isinstance(value, (six.string_types, bytes))
 
 
+def make_list(item_or_sequence):
+    """Coerce a sequence or non-sequence to a list."""
+    if isinstance(item_or_sequence, list):
+        return item_or_sequence
+    if isinstance(item_or_sequence, tuple):
+        return list(item_or_sequence)
+    return [item_or_sequence]
+
 def is_iterable(value):
     """Return True if the object is an iterable type."""
     return hasattr(value, '__iter__')
