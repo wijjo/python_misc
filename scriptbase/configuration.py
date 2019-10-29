@@ -17,7 +17,6 @@
 import os
 import shutil
 import copy
-import yaml
 from . import console
 from . import flatten
 from . import utility
@@ -134,9 +133,6 @@ class YAMLSyntax(SyntaxBase):
                 writer.code('%s:' % spec.name)
                 if spec.value:
                     for value in spec.value:
-                        str_value = str(value)
-                        if str_value and not str_value[0].isalnum():
-                            str_value = yam
                         writer.code('  - %s' % str(value))
                 else:
                     writer.code('  -')
@@ -158,6 +154,8 @@ class YAMLSyntax(SyntaxBase):
                 # Check other things?
                 if parent_key in spec_dict:
                     config[parent_key] = item
+        #pylint: disable=import-outside-toplevel,import-error
+        import yaml
         data = yaml.load(reader.read_all())
         _process_data(data, '')
 
