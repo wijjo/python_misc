@@ -1,6 +1,9 @@
 #pylint: disable=missing-docstring
 
+from scriptbase.console import Context, FatalError
 from scriptbase.argdeco import CLI
+
+CONSOLE = Context()
 
 @CLI.Main(
     description='CLI test program',
@@ -54,10 +57,9 @@ def run_test(cli_args, exp_called, exp_args):
             self.args = {k: getattr(args, k) for k in args.__dict__.keys() if k[0] != '_'}
     exp_args['ZZZ_SUBCOMMANDS'] = exp_called[-1] if len(exp_called) > 1 else None
     results = Results()
-    import argparse
     try:
-        CLI.main(results, cli_args=cli_args, abort_exception=True)
-    except (argparse.ArgumentError, SystemExit):
+        CLI.main(results, cli_args=cli_args)
+    except (FatalError, SystemExit):
         return 1
     exp_args = canon_dict(exp_args)
     res_args = canon_dict(results.args)
@@ -111,6 +113,7 @@ class Tests:
         print('Total errors: {}'.format(self.errors))
 
 def main():
+    CONSOLE.set_abort_exception(True)
     tests = Tests()
     tests.run()
     return tests.errors

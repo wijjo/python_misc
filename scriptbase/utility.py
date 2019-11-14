@@ -170,9 +170,10 @@ def range_iter(*args, **kwargs):
 def import_module_path(module_source_path, module_name=None):
     """Import module using an explicit source file path."""
     if not module_name:
-        module_name = '_%s' % '_'.join([s.replace('.', '_')
-                                        for s in os.path.split(module_source_path)])
+        module_name = '_%s' % '_'.join(
+            [s.replace('.', '_') for s in os.path.split(module_source_path)])
     # http://stackoverflow.com/questions/67631/how-to-import-a-module-given-the-full-path
+    #pylint:disable=import-outside-toplevel
     if sys.version_info.major == 2:
         import imp
         module = imp.load_source(module_name, module_source_path)

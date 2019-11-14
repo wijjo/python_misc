@@ -52,7 +52,6 @@ class Global(object):
 
 class FatalError(Exception):
     """Raised by Context.abort() if exceptions are enabled."""
-    pass
 
 
 def set_verbose(verbose):

@@ -97,7 +97,7 @@ from . import console
 
 class ExternalCommandError(Exception):
     """Exception for command failure in ExternalCommandHandler sub-classes."""
-
+    #pylint: disable=unnecessary-pass
     pass
 
 
@@ -440,12 +440,12 @@ class Runner(object):
 
     class VarNamespace(utility.DictObject):
         """Variable namespace is a dictionary with attribute access."""
-
+        #pylint: disable=unnecessary-pass
         pass
 
     class CommandArguments(utility.DictObject):
         """Command argument dictionary with attribute access."""
-
+        #pylint: disable=unnecessary-pass
         pass
 
     class _ShellCommandHandler(ExternalCommandHandler):
@@ -624,7 +624,7 @@ class Batch(object):
 
     class Error(Exception):
         """Exception for batch errors prior to execution."""
-
+        #pylint: disable=unnecessary-pass
         pass
 
     class Failure(Exception):
