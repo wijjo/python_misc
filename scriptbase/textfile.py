@@ -16,9 +16,10 @@
 
 from contextlib import contextmanager
 
+
 class TextFile(object):
     """
-    Simplifu line-oriented text output.
+    Simplified line-oriented text input/output.
 
     The write() method flattens strings and iterable items and writes lines to
     the path or file object passed to the constructor.  A None argument closes
@@ -64,7 +65,7 @@ class TextFile(object):
         if mode:
             self.file_handle = self.file_or_path
             try:
-                self.file_handle = open(self.file_or_path + '', mode)
+                self.file_handle = open(self.file_or_path + '', mode, encoding='utf-8')
             except TypeError:
                 pass
 
@@ -84,9 +85,10 @@ class TextFile(object):
                         # Indent sub-lists
                         with self.indented():
                             self._write(list_or_sublist)
-            except:
+            except Exception:
                 self._close()
                 raise
+
     def _close(self):
         if self.file_handle:
             self.file_handle.close()
@@ -98,12 +100,12 @@ class TextFile(object):
         try:
             self.indent_pos += count
             yield None
-        except:
+        except Exception:
             raise
         else:
             self.indent_pos -= count
 
-    #=== Support entry/exit conditions for "with" statement
+    # === Support entry/exit conditions for "with" statement
 
     def __enter__(self):
         """With statement enter magic method."""
